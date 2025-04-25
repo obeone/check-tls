@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # MIT License - Author: Grégoire Compagnon (obeone) (https://github.com/obeone)
 
-FROM python:3.13-slim
+FROM python:3.13-alpine
 
 # Create non-root user early to improve layer caching
 RUN addgroup --system app && adduser --system --ingroup app appuser
