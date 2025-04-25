@@ -132,7 +132,7 @@ When run with the `-s` or `--server` flag (either directly or via Docker), `chec
 
 Enter domains separated by spaces or commas, choose whether to ignore SSL errors, and click "Analyze". The results will be displayed on the page.
 
-![Web Interface Screenshot](placeholder.png)  <!-- TODO: Add a real screenshot -->
+![Web Interface Screenshot](screenshot.png)
 
 ---
 
