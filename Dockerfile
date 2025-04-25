@@ -16,3 +16,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 USER appuser
 
 ENTRYPOINT ["check-tls"]
+
+# Metadata Labels
+LABEL org.opencontainers.image.title="Check TLS Bundle"
+LABEL org.opencontainers.image.description="A tool to check TLS bundles"
+LABEL org.opencontainers.image.url="https://github.com/obeone/check-tls"
+LABEL org.opencontainers.image.source="https://github.com/obeone/check-tls"
+LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.vendor="Grégoire Compagnon - obeone"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.authors="Grégoire Compagnon - obeone <opensource@obeone.org>"
