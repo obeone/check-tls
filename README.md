@@ -66,8 +66,8 @@ If you prefer to install the script directly into your Python environment:
 
 ```bash
 # Ensure you have Python 3.9+ and pip installed
-git clone https://github.com/obeone/check-tls-bundle-final.git # Replace with your actual repo URL
-cd check-tls-bundle-final
+git clone https://github.com/obeone/check-tls.git # Replace with your actual repo URL
+cd check-tls
 pip install .
 ```
 
@@ -138,7 +138,7 @@ Enter domains separated by spaces or commas, choose whether to ignore SSL errors
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues on the [GitHub repository](https://github.com/obeone/check-tls-bundle-final). <!-- Replace with your actual repo URL -->
+Contributions are welcome! Please feel free to submit pull requests or open issues on the [GitHub repository](https://github.com/obeone/check-tls).
 
 ---
 
