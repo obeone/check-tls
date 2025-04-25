@@ -28,17 +28,17 @@ A versatile Python tool to analyze TLS/SSL certificates for one or multiple doma
 
 ## 🚀 Features
 
-*   **Comprehensive Analysis**: Fetches leaf and intermediate certificates (via AIA).
-*   **Full Validation**: Validates the certificate chain against the system's trust store.
-*   **Profile Detection**: Identifies certificate usage profiles (e.g., `tlsserver`, `email`, `codeSigning`).
-*   **SAN Extraction**: Lists Subject Alternative Names (SANs).
-*   **Flexible Output**:
-    *   Human-readable console output (with colors!).
-    *   JSON format (`-j`/`--json`).
-    *   CSV format (`-c`/`--csv`).
-*   **Insecure Mode**: Option (`-k`/`--insecure`) to bypass SSL validation for fetching (useful for self-signed certs).
-*   **Web Server Mode**: Run an interactive web UI (`-s`/`--server`) to analyze domains on the fly.
-*   **Dockerized**: Available as ready-to-use Docker images.
+- **Comprehensive Analysis**: Fetches leaf and intermediate certificates (via AIA).
+- **Full Validation**: Validates the certificate chain against the system's trust store.
+- **Profile Detection**: Identifies certificate usage profiles (e.g., `tlsserver`, `email`, `codeSigning`).
+- **SAN Extraction**: Lists Subject Alternative Names (SANs).
+- **Flexible Output**:
+  - Human-readable console output (with colors!).
+  - JSON format (`-j`/`--json`).
+  - CSV format (`-c`/`--csv`).
+- **Insecure Mode**: Option (`-k`/`--insecure`) to bypass SSL validation for fetching (useful for self-signed certs).
+- **Web Server Mode**: Run an interactive web UI (`-s`/`--server`) to analyze domains on the fly.
+- **Dockerized**: Available as ready-to-use Docker images.
 
 ---
 
@@ -85,14 +85,14 @@ check-tls [OPTIONS] domain1 [domain2 ...]
 
 **Options:**
 
-*   `domain...`: One or more domains to analyze.
-*   `-j, --json FILE`: Output JSON report to FILE (`-` for stdout).
-*   `-c, --csv FILE`: Output CSV report to FILE (`-` for stdout).
-*   `-m, --mode MODE`: Analysis mode: `simple` (leaf only) or `full` (fetch intermediates, default).
-*   `-l, --loglevel LEVEL`: Set log level (e.g., `DEBUG`, `INFO`, `WARN`, `ERROR`). Default: `WARN`.
-*   `-k, --insecure`: Allow fetching certificates without SSL validation.
-*   `-s, --server`: Run as an HTTP server with a web interface.
-*   `-p, --port PORT`: Specify server port (default: 8000).
+- `domain...`: One or more domains to analyze.
+- `-j, --json FILE`: Output JSON report to FILE (`-` for stdout).
+- `-c, --csv FILE`: Output CSV report to FILE (`-` for stdout).
+- `-m, --mode MODE`: Analysis mode: `simple` (leaf only) or `full` (fetch intermediates, default).
+- `-l, --loglevel LEVEL`: Set log level (e.g., `DEBUG`, `INFO`, `WARN`, `ERROR`). Default: `WARN`.
+- `-k, --insecure`: Allow fetching certificates without SSL validation.
+- `-s, --server`: Run as an HTTP server with a web interface.
+- `-p, --port PORT`: Specify server port (default: 8000).
 
 **Examples:**
 
