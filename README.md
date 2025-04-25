@@ -144,4 +144,4 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## 📜 License
 
-This project is licensed under the MIT License. Author: Grégoire Compagnon [obeone](https://github.com/obeone). See the [LICENSE](LICENSE) file for details (assuming MIT, create a LICENSE file if needed).
+This project is licensed under the MIT License. Author: Grégoire Compagnon [obeone](https://github.com/obeone).
