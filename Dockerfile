@@ -50,11 +50,11 @@
     
     EXPOSE 8000
     
-    CMD ["check-tls", "--server"]
+    ENTRYPOINT ["check-tls"]
     
     # Metadata Labels
     LABEL org.opencontainers.image.title="Check TLS Bundle" \
-          org.opencontainers.image.description="A tool to check TLS bundles" \
+          org.opencontainers.image.description="A versatile Python tool to analyze TLS/SSL certificates for one or multiple domains, featuring profile detection, chain validation, and multiple output formats. Includes a handy web interface mode!" \
           org.opencontainers.image.url="https://github.com/obeone/check-tls" \
           org.opencontainers.image.source="https://github.com/obeone/check-tls" \
           org.opencontainers.image.version="0.1.0" \
