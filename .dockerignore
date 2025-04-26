@@ -1,0 +1,38 @@
+# Ignore Python cache and temporary files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Ignore virtual environments
+venv/
+.env/
+.envrc
+
+# Ignore test output and coverage
+.coverage
+htmlcov/
+dist/
+build/
+.eggs/
+*.egg-info/
+
+# Ignore git and editor files
+.git/
+.gitignore
+*.swp
+*.swo
+*.bak
+.DS_Store
+
+# Ignore local config and secrets
+*.env
+secrets.*
+
+# Ignore docs and markdown previews
+*.md~
+
+# Ignore Docker artifacts
+Dockerfile*
+.dockerignore
