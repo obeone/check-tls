@@ -69,6 +69,10 @@ Visit http://localhost:8000 in your browser.
 ---
 
 ### Command Line
+
+![Screenshot of CLI Output](screenshot_cli.png)
+*Example: Command-line output for analyzing a domain*
+
 Analyze a domain:
 ```sh
 check-tls example.com
@@ -82,8 +86,8 @@ check-tls google.com github.com -j report.json
 Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 
 **Key options:**
-- `-j, --json FILE`   Output JSON
-- `-c, --csv FILE`    Output CSV
+- `-j, --json FILE`   Output JSON (use "-" for stdout)
+- `-c, --csv FILE`    Output CSV (use "-" for stdout)
 - `-k, --insecure`    Allow self-signed certs
 - `-s, --server`      Launch web UI
 - `-p, --port`        Web server port
@@ -94,8 +98,6 @@ Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 Start the web UI:
 ```sh
 check-tls --server
-# or
-python -m src.main --server
 ```
 Visit http://localhost:8000 in your browser.
 
@@ -146,7 +148,7 @@ curl -X POST http://localhost:8000/ \
 
 ## 🌐 Web Interface
 
-![Screenshot of Web UI](screenshot.png)
+![Screenshot of Web UI](screenshot_web.png)
 *Example: HTML-based interactive certificate analysis*
 
 - User-friendly web UI for interactive analysis
