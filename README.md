@@ -10,21 +10,30 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 ---
 
 ## 📚 Table of Contents
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Web Interface](#web-interface)
-- [Docker](#docker)
-- [Project Structure](#project-structure)
-- [FAQ](#faq)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
+
+- [🚀 Features](#-features)
+- [🛠️ Installation](#️-installation)
+  - [With Docker (Recommended)](#with-docker-recommended)
+  - [With pip](#with-pip)
+- [⚙️ Usage](#️-usage)
+  - [Example (Start with Docker!)](#example-start-with-docker)
+  - [Command Line](#command-line)
+- [🖥️ REST API Usage](#️-rest-api-usage)
+  - [Analyze Domains (POST /)](#analyze-domains-post-)
+    - [Example curl Request](#example-curl-request)
+    - [Example JSON Response](#example-json-response)
+- [🌐 Web Interface](#-web-interface)
+- [🗂️ Project Structure](#️-project-structure)
+- [❓ FAQ](#-faq)
+- [🛠️ Troubleshooting](#️-troubleshooting)
+- [👩‍💻 Development](#-development)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
 
 ---
 
 ## 🚀 Features
+
 - **Comprehensive Analysis**: Fetches leaf & intermediate certificates (AIA fetching)
 - **Chain Validation**: Validates against system trust store
 - **Profile Detection**: Detects usage profiles (server, email, code signing, etc.)
@@ -38,11 +47,13 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 ## 🛠️ Installation
 
 ### With Docker (Recommended)
+
 ```sh
 docker pull obeoneorg/check-tls:latest
 ```
 
 ### With pip
+
 ```sh
 git clone https://github.com/obeone/check-tls.git
 cd check-tls
@@ -56,15 +67,18 @@ pip install .
 ### Example (Start with Docker!)
 
 Analyze a domain with Docker:
+
 ```sh
 docker run --rm obeoneorg/check-tls:latest example.com
 ```
 
 Run the web UI with Docker:
+
 ```sh
 docker run --rm -p 8000:8000 obeoneorg/check-tls:latest --server
 ```
-Visit http://localhost:8000 in your browser.
+
+Visit <http://localhost:8000> in your browser.
 
 ---
 
@@ -74,11 +88,13 @@ Visit http://localhost:8000 in your browser.
 *Example: Command-line output for analyzing a domain*
 
 Analyze a domain:
+
 ```sh
 check-tls example.com
 ```
 
 Analyze multiple domains, output JSON:
+
 ```sh
 check-tls google.com github.com -j report.json
 ```
@@ -86,6 +102,7 @@ check-tls google.com github.com -j report.json
 Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 
 **Key options:**
+
 - `-j, --json FILE`   Output JSON (use "-" for stdout)
 - `-c, --csv FILE`    Output CSV (use "-" for stdout)
 - `-k, --insecure`    Allow self-signed certs
@@ -93,13 +110,6 @@ Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 - `-p, --port`        Web server port
 - `--no-transparency` Skip transparency check
 - `--no-crl-check`    Skip CRL check
-
-### Web Interface
-Start the web UI:
-```sh
-check-tls --server
-```
-Visit http://localhost:8000 in your browser.
 
 ---
 
@@ -128,6 +138,7 @@ curl -X POST http://localhost:8000/ \
 ```
 
 #### Example JSON Response
+
 ```json
 [
   {
@@ -158,7 +169,8 @@ curl -X POST http://localhost:8000/ \
 ---
 
 ## 🗂️ Project Structure
-```
+
+```text
 check-tls/
 ├── src/
 │   ├── main.py           # CLI entry point
@@ -202,23 +214,29 @@ A: By default, logs print to the console. Use `-l DEBUG` for more detail.
 ## 🛠️ Troubleshooting
 
 **Problem:** `ModuleNotFoundError` or import errors after moving files
+
 - **Solution:** Make sure you installed with `pip install .` from the project root, and that you run scripts via `check-tls ...` or `python -m src.main ...`.
 
 **Problem:** `ERROR: ... does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found.`
+
 - **Solution:** Ensure `setup.py` is at the project root, not inside `src/`.
 
 **Problem:** Web server runs but browser shows error
+
 - **Solution:** Check the logs for Python exceptions, and ensure Flask is installed.
 
 **Problem:** Docker build fails or can't find files
+
 - **Solution:** Make sure your Dockerfile matches the new project structure and copies both `setup.py` and the `src/` folder.
 
 **Problem:** Can't bind to port 8000
+
 - **Solution:** Make sure the port is not already in use, or use `-p` to specify a different port.
 
 ---
 
 ## 👩‍💻 Development
+
 - All code is in `src/` (import as `from src.utils import ...`)
 - Add new features as modules in `src/` or `src/utils/`
 - Run tests and lint before submitting PRs
@@ -227,9 +245,11 @@ A: By default, logs print to the console. Use `-l DEBUG` for more detail.
 ---
 
 ## 🤝 Contributing
+
 Pull requests are welcome! Please open an issue to discuss major changes.
 
 ---
 
 ## 📜 License
+
 MIT License © Grégoire Compagnon (obeone)
