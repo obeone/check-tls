@@ -9,9 +9,11 @@ RUN addgroup --system app && adduser --system --ingroup app appuser
 WORKDIR /app
 
 # Install Python dependencies with persistent cache
-COPY --link check_tls.py setup.py ./
+COPY --link setup.py ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install .
+
+COPY --link check_tls.py ./
 
 USER appuser
 
