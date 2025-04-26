@@ -10,9 +10,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec, dsa
 
 def calculate_days_remaining(cert: x509.Certificate) -> int:
     now_utc = datetime.datetime.now(timezone.utc)
-    expiry_utc = cert.not_valid_after
-    if expiry_utc.tzinfo is None:
-        expiry_utc = expiry_utc.replace(tzinfo=timezone.utc)
+    # Use not_valid_after_utc if available, otherwise fallback
+    expiry_utc = getattr(cert, 'not_valid_after_utc', None)
+    if expiry_utc is None:
+        expiry_utc = cert.not_valid_after
+        if expiry_utc.tzinfo is None:
+            expiry_utc = expiry_utc.replace(tzinfo=timezone.utc)
     delta = expiry_utc - now_utc
     return delta.days
 

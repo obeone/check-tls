@@ -10,11 +10,12 @@ import csv
 from typing import List, Optional, Dict, Any, Tuple
 from check_tls.utils.cert_utils import *
 from check_tls.utils.crl_utils import *
-from check_tls.utils.crtsh_utils import *
+from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID, AuthorityInformationAccessOID
 import urllib.request
+import json
 
 
 def fetch_leaf_certificate_and_conn_info(domain: str, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
@@ -234,7 +235,7 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
         "connection_health": { "checked": False, "error": None, "tls_version": None, "supports_tls13": None, "cipher_suite": None, },
         "validation": { "system_trust_store": None, "error": None },
         "certificates": [],
-        "transparency": { "checked": False, "crtsh_records_found": None, "error": None },
+        "transparency": { "checked": False, "crtsh_records_found": None, "error": None, "details": None, "errors": None },
         "crl_check": { "checked": False, "leaf_status": None, "details": None }
     }
     logger.info(f"Fetching leaf certificate and connection info for {domain}...")
@@ -312,23 +313,29 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
     else:
         logger.info(f"Skipping CRL check for {domain} as requested.")
         result["crl_check"]["checked"] = False
+    # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
-        logger.info(f"Checking certificate transparency logs for {domain} via crt.sh...")
-        result["transparency"]["checked"] = True
-        try:
-            crtsh_data = query_crtsh(domain)
-            if crtsh_data is not None:
-                result["transparency"]["crtsh_records_found"] = len(crtsh_data)
+        ct_results = query_crtsh_multi(domain)
+        transparency_summary = {
+            'checked': True,
+            'details': {},
+            'total_records': 0,
+            'errors': {},
+            'crtsh_report_links': {},
+        }
+        for d, res in ct_results.items():
+            if res is None:
+                transparency_summary['errors'][d] = 'error or timeout'
+                transparency_summary['details'][d] = None
+                transparency_summary['crtsh_report_links'][d] = f"https://crt.sh/?q={d}"
             else:
-                result["transparency"]["crtsh_records_found"] = 0
-                if not result["transparency"].get("error"):
-                    result["transparency"]["error"] = "crt.sh query failed, timed out, or returned no data."
-        except Exception as e:
-            logger.error(f"Error querying crt.sh for {domain}: {e}")
-            result["transparency"]["error"] = str(e)
+                transparency_summary['details'][d] = res
+                transparency_summary['total_records'] += len(res)
+                transparency_summary['crtsh_report_links'][d] = f"https://crt.sh/?q={d}"
+        transparency_summary['crtsh_records_found'] = transparency_summary['total_records']
+        result['transparency'] = transparency_summary
     else:
-        logger.info(f"Skipping certificate transparency check for {domain}.")
-        result["transparency"]["checked"] = False
+        result['transparency'] = {'checked': False}
     if result["status"] != "failed":
         if not result["error_message"] and all_certs_analyzed:
             result["status"] = "completed"
@@ -374,58 +381,49 @@ def run_analysis(domains: List[str], output_json: Optional[str] = None, output_c
     overall_end_time = datetime.datetime.now(timezone.utc)
     logger.info(f"Completed analysis of {len(domains)} domain(s) in {(overall_end_time - overall_start_time).total_seconds():.2f}s")
     if output_json:
-        out = sys.stdout if output_json == "-" else open(output_json, "w", encoding='utf-8')
-        import json
-        json.dump(results, out, indent=2, ensure_ascii=False)
-        if out is not sys.stdout:
-            out.close()
-            logger.info(f"JSON report written to {output_json}")
+        with (open(output_json, 'w') if output_json != '-' else sys.stdout) as f:
+            json.dump(results, f, indent=2)
     if output_csv:
-        out = sys.stdout if output_csv == "-" else open(output_csv, "w", newline='', encoding='utf-8')
-        writer = csv.writer(out)
-        headers = [
-            "Domain", "Status", "Error Message", "Analysis Timestamp", "Conn Health Checked", "Conn Health Error", "TLS Version", "Supports TLS 1.3", "Cipher Suite",
-            "System Validation", "Validation Error", "CRL Checked", "CRL Leaf Status", "CRL Detail", "Transparency Checked", "CT Records Found", "CT Error",
-            "Cert Index", "Cert Error", "Subject", "Issuer", "Common Name", "Serial Number", "Version", "Not Before", "Not After", "Days Remaining",
-            "SHA256 Fingerprint", "Signature Algorithm", "Public Key Algorithm", "Public Key Size", "Profile", "SANs", "Has SCTs", "Is CA", "Path Length Constraint"
-        ]
-        writer.writerow(headers)
-        for result in results:
-            domain = result.get("domain", "N/A")
-            status = result.get("status", "failed")
-            error_msg = result.get("error_message", "Unknown error")
-            analysis_ts = result.get("analysis_timestamp", "N/A")
-            conn = result.get("connection_health", {})
-            conn_checked = conn.get("checked", False)
-            conn_error = conn.get("error", "")
-            tls_version = conn.get("tls_version", "N/A")
-            tls13 = conn.get("supports_tls13", "N/A")
-            cipher = conn.get("cipher_suite", "N/A")
-            val = result.get("validation", {})
-            sys_val = val.get("system_trust_store")
-            val_error = val.get("error", "")
-            crl = result.get("crl_check", {})
-            crl_checked = crl.get("checked", False)
-            crl_leaf_status = crl.get("leaf_status", "")
-            crl_detail = crl.get("details", "")
-            transparency = result.get("transparency", {})
-            ct_checked = transparency.get("checked", False)
-            ct_records = transparency.get("crtsh_records_found", "")
-            ct_error = transparency.get("error", "")
-            certs_list = result.get("certificates", [])
-            if not certs_list:
-                writer.writerow([
-                    domain, status, error_msg, analysis_ts, conn_checked, conn_error, tls_version, tls13, cipher,
-                    sys_val, val_error, crl_checked, crl_leaf_status, crl_detail, ct_checked, ct_records, ct_error,
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
-                ])
-            else:
-                for cert in certs_list:
+        with (open(output_csv, 'w', newline='') if output_csv != '-' else sys.stdout) as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'domain', 'status', 'error_message', 'analysis_timestamp',
+                'tls_checked', 'tls_error', 'tls_version', 'supports_tls13', 'cipher_suite',
+                'system_trust_store', 'validation_error',
+                'crl_checked', 'crl_leaf_status', 'crl_detail',
+                'ct_checked', 'ct_total_records', 'ct_errors', 'ct_details',
+                'cert_index', 'cert_error', 'subject', 'issuer', 'common_name', 'serial_number', 'version', 'not_before', 'not_after', 'days_remaining',
+                'sha256_fingerprint', 'signature_algorithm', 'public_key_algorithm', 'public_key_size', 'profile', 'san', 'has_scts', 'is_ca', 'path_length_constraint'
+            ])
+            for result in results:
+                trans = result.get('transparency', {})
+                ct_checked = trans.get('checked', False)
+                ct_total_records = trans.get('crtsh_records_found', 0)
+                ct_errors = json.dumps(trans.get('errors', {})) if trans.get('errors') else ''
+                ct_details = json.dumps({k: len(v) if v is not None else None for k, v in trans.get('details', {}).items()}) if trans.get('details') else ''
+                certs_list = result.get("certificates", [])
+                if not certs_list:
                     writer.writerow([
-                        domain, status, error_msg, analysis_ts, conn_checked, conn_error, tls_version, tls13, cipher,
-                        sys_val, val_error, crl_checked, crl_leaf_status, crl_detail, ct_checked, ct_records, ct_error,
-                        cert.get("chain_index", ""), cert.get("error", ""), cert.get("subject", ""), cert.get("issuer", ""), cert.get("common_name", ""), cert.get("serial_number", ""), cert.get("version", ""), cert.get("not_before", ""), cert.get("not_after", ""), cert.get("days_remaining", ""), cert.get("sha256_fingerprint", ""), cert.get("signature_algorithm", ""), cert.get("public_key_algorithm", ""), cert.get("public_key_size_bits", ""), cert.get("profile", ""), ", ".join(cert.get("san", [])), cert.get("has_scts", ""), cert.get("is_ca", ""), cert.get("path_length_constraint", "")
+                        result.get('domain'), result.get('status'), result.get('error_message'), result.get('analysis_timestamp'),
+                        result.get('connection_health', {}).get('checked'), result.get('connection_health', {}).get('error'),
+                        result.get('connection_health', {}).get('tls_version'), result.get('connection_health', {}).get('supports_tls13'),
+                        result.get('connection_health', {}).get('cipher_suite'),
+                        result.get('validation', {}).get('system_trust_store'), result.get('validation', {}).get('error'),
+                        result.get('crl_check', {}).get('checked'), result.get('crl_check', {}).get('leaf_status'),
+                        json.dumps(result.get('crl_check', {}).get('details')), # crl_detail
+                        ct_checked, ct_total_records, ct_errors, ct_details,
+                        "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
                     ])
-        if out is not sys.stdout:
-            out.close()
-            logger.info(f"CSV report written to {output_csv}")
+                else:
+                    for cert in certs_list:
+                        writer.writerow([
+                            result.get('domain'), result.get('status'), result.get('error_message'), result.get('analysis_timestamp'),
+                            result.get('connection_health', {}).get('checked'), result.get('connection_health', {}).get('error'),
+                            result.get('connection_health', {}).get('tls_version'), result.get('connection_health', {}).get('supports_tls13'),
+                            result.get('connection_health', {}).get('cipher_suite'),
+                            result.get('validation', {}).get('system_trust_store'), result.get('validation', {}).get('error'),
+                            result.get('crl_check', {}).get('checked'), result.get('crl_check', {}).get('leaf_status'),
+                            json.dumps(result.get('crl_check', {}).get('details')), # crl_detail
+                            ct_checked, ct_total_records, ct_errors, ct_details,
+                            cert.get("chain_index", ""), cert.get("error", ""), cert.get("subject", ""), cert.get("issuer", ""), cert.get("common_name", ""), cert.get("serial_number", ""), cert.get("version", ""), cert.get("not_before", ""), cert.get("not_after", ""), cert.get("days_remaining", ""), cert.get("sha256_fingerprint", ""), cert.get("signature_algorithm", ""), cert.get("public_key_algorithm", ""), cert.get("public_key_size_bits", ""), cert.get("profile", ""), ", ".join(cert.get("san", [])), cert.get("has_scts", ""), cert.get("is_ca", ""), cert.get("path_length_constraint", "")
+                        ])

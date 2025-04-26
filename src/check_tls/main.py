@@ -1,4 +1,4 @@
-# CLI entry point and argument parsing
+  # CLI entry point and argument parsing
 import argparse
 import logging
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
@@ -89,14 +89,25 @@ def print_human_summary(results):
                 print(f"        Signature: {cert.get('signature_algorithm', 'N/A')}")
                 print(f"        SHA256 Fingerprint: {cert.get('sha256_fingerprint', 'N/A')}")
                 print(f"        SANs: {', '.join(cert.get('san', [])) if cert.get('san') else 'None'}\n")
+        # Certificate Transparency
+        trans = result.get('transparency', {})
         print("\n  \033[1mCertificate Transparency:\033[0m")
-        transparency = result.get('transparency', {})
-        if not transparency.get('checked'):
-            print("    Status      : \033[93mSkipped\033[0m")
+        if not trans.get('checked'):
+            print("    Status: \033[93mSkipped\033[0m")
         else:
-            print(f"    Records Found: {transparency.get('crtsh_records_found', 'N/A')}")
-            if transparency.get('error'):
-                print(f"    Error        : \033[91m{transparency['error']}\033[0m")
+            details = trans.get('details', {})
+            links = trans.get('crtsh_report_links', {})
+            total = trans.get('crtsh_records_found', 0)
+            if trans.get('errors'):
+                for d, err in trans['errors'].items():
+                    link = links.get(d)
+                    print(f"    {d}: \033[91mError: {err}\033[0m" + (f" [crt.sh]({link})" if link else ""))
+            else:
+                for d, records in details.items():
+                    link = links.get(d)
+                    count = len(records) if records is not None else 'Error'
+                    print(f"    {d}: {count} record(s)" + (f" [crt.sh]({link})" if link else ""))
+            print(f"    Total records found: {total}")
     print("\n\033[90m--- End of analysis ---\033[0m\n")
 
 def main():
@@ -114,6 +125,10 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=get_log_level(args.loglevel))
+
+    if not args.domains and not args.server:
+        parser.print_help()
+        return
 
     if args.server:
         run_server(args)
@@ -133,7 +148,7 @@ def main():
             else:
                 print_human_summary(results)
         else:
-            print("No domains provided. Use -h for help.")
+            parser.print_help()
 
 if __name__ == "__main__":
     main()

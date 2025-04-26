@@ -3,8 +3,12 @@ import logging
 import argparse
 from flask import Flask, render_template_string, request, jsonify, current_app
 from check_tls.tls_checker import analyze_certificates
+from markupsafe import Markup
 
 # HTML template for the web interface
+def get_tooltip(text):
+    return Markup(f"<span data-bs-toggle='tooltip' data-bs-placement='top' title='{text}'>🛈</span>")
+
 HTML_TEMPLATE = """
 <!doctype html>
 <html lang='en'>
@@ -66,7 +70,7 @@ HTML_TEMPLATE = """
     .form-check-label { color: var(--form-check-label-color); }
     .form-check-input { background-color: var(--form-check-input-bg); border: 1px solid var(--form-check-input-border); }
     .form-check-input:checked { background-color: var(--form-check-input-checked-bg); border-color: var(--form-check-input-checked-border); }
-    .form-check-input:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+    .form-check-input:focus { border-color: #86b7fe; box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25); }
     .form-check-input[type=checkbox] { border-radius: .25em; }
     .bg-warning { color: #222 !important; }
     .cert-error { background-color: #5e2129; border-color: #a0414b; color: #ffb3b8; }
@@ -117,6 +121,42 @@ HTML_TEMPLATE = """
         }
         body { background-color: var(--bg-color) !important; color: var(--text-color) !important; }
         .card, .shadow-sm { background-color: var(--card-bg) !important; color: var(--text-color) !important; }
+    }
+    .tooltip-th {
+        border-bottom: 1px dashed #888;
+        cursor: help;
+        text-decoration: none;
+        position: relative;
+    }
+    .tooltip-th[data-tooltip]:hover:after, .tooltip-th[data-tooltip]:focus:after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 0;
+        top: 120%;
+        background: #222;
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 0.75em;
+        line-height: 1.4;
+        white-space: pre-line;
+        z-index: 10;
+        opacity: 1;
+        pointer-events: auto;
+        transition: none;
+        min-width: 220px;
+        max-width: 350px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+    }
+    .tooltip-th[data-tooltip]:after {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0s;
+    }
+    .tooltip-th[data-tooltip]:hover:after, .tooltip-th[data-tooltip]:focus:after {
+        opacity: 1;
+        pointer-events: auto;
+        transition-delay: 0s;
     }
 </style>
 <!doctype html>
@@ -173,7 +213,7 @@ HTML_TEMPLATE = """
     <p class='text-muted'><small>Analysis Time: {{ result.analysis_timestamp | default('N/A') }}</small></p>
 
     {# Validation Section #}
-    <div> <h5 class='section-title'>Validation</h5>
+    <div> <h5 class='section-title'>Validation {{ get_tooltip('Whether the certificate is trusted by the system trust store. This is a critical check as it determines if the certificate is considered valid by the client.') }}</h5>
         {% set val = result.validation | default({}) %} {% set val_status = val.system_trust_store %}
         {% if val_status is sameas true %}<span class='badge bg-success'>✔️ Valid (System Trust)</span>
         {% elif val_status is sameas false %}<span class='badge bg-danger'>❌ Invalid (System Trust)</span> {% if val.error %}<small class='text-muted ps-2'>({{ val.error }})</small>{% endif %}
@@ -185,42 +225,42 @@ HTML_TEMPLATE = """
     {% set certs_list = result.certificates | default([]) %}
     {% set leaf_cert = certs_list[0] if certs_list and 'error' not in certs_list[0] else none %}
     {% if leaf_cert %}
-    <div> <h5 class='section-title'>Leaf Certificate Summary</h5>
+    <div> <h5 class='section-title'>Leaf Certificate Summary {{ get_tooltip('Summary of the leaf (end-entity) certificate.') }}</h5>
         <table class='table table-sm table-bordered'>
-             <tr><th>Common Name</th><td>{{ leaf_cert.common_name | default('N/A') }}</td></tr>
-             <tr><th>Expires</th><td>
+             <tr><th class="tooltip-th" data-tooltip="The primary domain name (CN) for which this certificate was issued. Browsers match this against the requested domain.">Common Name</th><td>{{ leaf_cert.common_name | default('N/A') }}</td></tr>
+             <tr><th class="tooltip-th" data-tooltip="The exact date and time when this certificate will expire. After this point, browsers and clients will reject it as invalid.">Expires</th><td>
                  {% set days_leaf = leaf_cert.days_remaining %}
                  {{ (leaf_cert.not_after | replace("T", " ") | replace("Z", "") | replace("+00:00", ""))[:19] | default('N/A') }}
                  {% if days_leaf is not none %}<span class='{% if days_leaf < 30 %}text-danger{% elif days_leaf < 90 %}text-warning{% else %}text-success{% endif %} fw-bold'> ({{ days_leaf }} days)</span>
                  {% else %}<span class='text-secondary'>(Expiry N/A)</span> {% endif %}
              </td></tr>
-             <tr><th>SANs</th><td>{{ leaf_cert.san | join(", ") | default('None') }}</td></tr>
-             <tr><th>Issuer</th><td>{{ leaf_cert.issuer | default('N/A') }}</td></tr>
+             <tr><th class="tooltip-th" data-tooltip="Subject Alternative Names (SANs): all additional domains and subdomains this certificate is valid for, in addition to the Common Name.">SANs</th><td>{{ leaf_cert.san | join(", ") | default('None') }}</td></tr>
+             <tr><th class="tooltip-th" data-tooltip="The organization or Certificate Authority (CA) that issued and signed this certificate.">Issuer</th><td>{{ leaf_cert.issuer | default('N/A') }}</td></tr>
         </table>
     </div>
     {% endif %}
 
     {# Connection Health Section #}
-    <div> <h5 class='section-title'>Connection Health</h5>
+    <div> <h5 class='section-title'>Connection Health {{ get_tooltip('TLS version, cipher, and protocol health of the connection.') }}</h5>
         {% set conn = result.connection_health | default({}) %}
         {% if not conn.checked %}<span class='badge bg-warning'>Not Checked / Failed</span> {% if conn.error %}<small class='text-muted ps-2'>({{ conn.error }})</small>{% endif %}
         {% else %}
         <table class='table table-sm table-bordered'>
-            <tr><th>TLS Version</th><td>{{ conn.tls_version | default('N/A') }}</td></tr>
-            <tr><th>TLS 1.3 Support</th><td>
+            <tr><th class="tooltip-th" data-tooltip="The negotiated TLS protocol version used for this connection (e.g., TLS 1.3). Higher versions are generally more secure.">TLS Version</th><td>{{ conn.tls_version | default('N/A') }}</td></tr>
+            <tr><th class="tooltip-th" data-tooltip="Indicates whether the server supports the latest TLS 1.3 protocol, which provides improved security and performance.">TLS 1.3 Support</th><td>
                 {% set tls13_s = conn.supports_tls13 %}
                 {% if tls13_s is sameas true %}<span class='text-success'>✔️ Yes</span>
                 {% elif tls13_s is sameas false %}<span class='text-danger'>❌ No</span>
                 {% else %}<span class='text-secondary'>N/A</span>{% endif %}
             </td></tr>
-            <tr><th>Cipher Suite</th><td>{{ conn.cipher_suite | default('N/A') }}</td></tr>
+            <tr><th class="tooltip-th" data-tooltip="The specific cryptographic algorithms used to secure the connection, including key exchange, encryption, and authentication.">Cipher Suite</th><td>{{ conn.cipher_suite | default('N/A') }}</td></tr>
         </table>
         {% if conn.error %}<div class='alert alert-danger mt-2'><small>Connection Error: {{ conn.error }}</small></div>{% endif %}
         {% endif %}
     </div>
 
     {# CRL Check Section #}
-    <div><h5 class='section-title'>CRL Check (Leaf Certificate)</h5>
+    <div><h5 class='section-title'>CRL Check (Leaf Certificate) {{ get_tooltip('Checks if the certificate is revoked using CRL.') }}</h5>
         {% set crl_check_data = result.crl_check | default({}) %}
         {% if not crl_check_data.checked %}
              <span class='badge bg-secondary'>Skipped</span>
@@ -248,7 +288,7 @@ HTML_TEMPLATE = """
     </div>
 
     {# Certificate Chain Details Section #}
-     <div> <h5 class='section-title'>Certificate Chain Details ({{ certs_list | length }})</h5>
+     <div> <h5 class='section-title'>Certificate Chain Details {{ get_tooltip('Details of each certificate in the chain.') }}</h5>
         {% if not certs_list and result.status != 'failed' %}<div class='alert alert-warning'>No certificates were processed successfully.</div>
         {% elif not certs_list and result.status == 'failed' %}<div class='alert alert-danger'>Certificate fetching or analysis failed.</div>
         {% endif %}
@@ -262,34 +302,33 @@ HTML_TEMPLATE = """
             {% if cert.error %}<div class='cert-error'><strong>Error:</strong> {{ cert.error }}</div>
             {% else %}
             <table class='table table-sm table-bordered mb-3'>
-                <tr><th>Subject</th><td>{{ cert.subject | default('N/A') }}</td></tr>
-                <tr><th>Issuer</th><td>{{ cert.issuer | default('N/A') }}</td></tr>
-                <tr><th>Common Name</th><td>{{ cert.common_name | default('N/A') }}</td></tr>
-                <tr><th>Serial</th><td>{{ cert.serial_number | default('N/A') }}</td></tr>
-                <tr><th>Version</th><td>{{ cert.version | default('N/A') }}</td></tr>
-                <tr><th>Validity</th><td>
+                <tr><th class="tooltip-th" data-tooltip="The distinguished name (DN) of the entity this certificate is issued to, including organization, location, and CN.">Subject</th><td>{{ cert.subject | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="The organization or Certificate Authority (CA) that issued and signed this certificate.">Issuer</th><td>{{ cert.issuer | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="The primary domain name (CN) for which this certificate was issued. Browsers match this against the requested domain.">Common Name</th><td>{{ cert.common_name | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="A unique identifier assigned to this certificate by the issuer. Useful for revocation and auditing.">Serial</th><td>{{ cert.serial_number | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="The X.509 version of this certificate. Modern certificates use version 3.">Version</th><td>{{ cert.version | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="The period during which this certificate is considered valid, from 'not before' to 'not after' dates.">Validity</th><td>
                     {{ (cert.not_before | replace("T", " ") | replace("Z", "") | replace("+00:00", ""))[:19] | default('N/A') }} →
                     {{ (cert.not_after | replace("T", " ") | replace("Z", "") | replace("+00:00", ""))[:19] | default('N/A') }} <br>
                     {% set days = cert.days_remaining %}
                     {% if days is not none %}<span class='{% if days < 30 %}text-danger{% elif days < 90 %}text-warning{% else %}text-success{% endif %} fw-bold'> ({{ days }} days remaining)</span>
                     {% else %}<span class='text-secondary'>(Expiry N/A)</span> {% endif %}
                 </td></tr>
-                <tr><th>Key</th><td>
+                <tr><th class="tooltip-th" data-tooltip="Details about the public key in this certificate, including algorithm (e.g., RSA, ECDSA) and key size in bits. Weak keys are insecure.">Key</th><td>
                     {% set k_algo = cert.public_key_algorithm | default('N/A') %} {% set k_size = cert.public_key_size_bits %} {{ k_algo }}
                     {% if k_size %}
                         {% set weak_key = (k_algo == 'RSA' and k_size < 2048) or ('ECDSA' in k_algo and k_size < 256) or (k_algo == 'DSA' and k_size < 2048) %}
                         (<span class='{% if weak_key %}weak-crypto{% endif %}'>{{ k_size }} bits</span>){% if weak_key %}<span class='weak-crypto ps-1'>(Weak)</span>{% endif %}
                     {% endif %}
                 </td></tr>
-                <tr><th>Signature Algo</th><td>
+                <tr><th class="tooltip-th" data-tooltip="The algorithm used by the issuer to sign this certificate. Weak signature algorithms (like SHA1/MD5) are insecure.">Signature Algo</th><td>
                      {% set sig_algo = cert.signature_algorithm | default('N/A') %} {% set weak_hash = "sha1" in sig_algo.lower() or "md5" in sig_algo.lower() %}
                      <span class='{% if weak_hash %}weak-crypto{% endif %}'>{{ sig_algo }}</span>{% if weak_hash %}<span class='weak-crypto ps-1'>(Weak)</span>{% endif %}
                 </td></tr>
-                 <tr><th>SHA256 FP</th><td class='fingerprint'>{{ cert.sha256_fingerprint | default('N/A') }}</td></tr>
-                <tr><th>Profile</th><td>{{ cert.profile | default('N/A') }}</td></tr>
-                <tr><th>SANs</th><td>{{ cert.san | join(", ") | default('None') }}</td></tr>
-                <tr><th>Is CA</th><td> {% if cert.is_ca is sameas true %}Yes{% elif cert.is_ca is sameas false %}No{% else %}N/A{% endif %} {% if cert.is_ca %} (PathLen: {{ cert.path_length_constraint if cert.path_length_constraint is not none else 'None' }}) {% endif %} </td></tr>
-                <tr><th>Embedded SCTs</th><td>
+                 <tr><th class="tooltip-th" data-tooltip="The SHA-256 fingerprint is a unique hash of the certificate. It can be used to verify or pin a certificate.">SHA256 FP</th><td class='fingerprint'>{{ cert.sha256_fingerprint | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="A high-level classification of the certificate's intended usage, such as server authentication or CA root.">Profile</th><td>{{ cert.profile | default('N/A') }}</td></tr>
+                <tr><th class="tooltip-th" data-tooltip="Whether this certificate can act as a Certificate Authority (CA) and issue other certificates. PathLen shows CA depth.">Is CA</th><td> {% if cert.is_ca is sameas true %}Yes{% elif cert.is_ca is sameas false %}No{% else %}N/A{% endif %} {% if cert.is_ca %} (PathLen: {{ cert.path_length_constraint if cert.path_length_constraint is not none else 'None' }}) {% endif %} </td></tr>
+                <tr><th class="tooltip-th" data-tooltip="Whether this certificate contains embedded Signed Certificate Timestamps (SCTs) for Certificate Transparency.">Embedded SCTs</th><td>
                     {% set sct_s = cert.has_scts %}
                     {% if sct_s is sameas true %}<span class='text-success'>✔️ Yes</span>
                     {% elif sct_s is sameas false %}<span class='text-warning'>❌ No</span>
@@ -301,17 +340,28 @@ HTML_TEMPLATE = """
     </div>
 
     {# Certificate Transparency Section #}
-    <div> <h5 class='section-title'>Certificate Transparency (crt.sh)</h5>
+    <div> <h5 class='section-title'>Certificate Transparency (crt.sh) {{ get_tooltip('Checks for issued certificates for this and parent domains in public CT logs.') }}</h5>
          {% set trans = result.transparency | default({}) %}
          {% if not trans.checked %}<span class='badge bg-secondary'>Skipped</span>
-         {% elif trans.error %}<span class='badge bg-danger'>Error</span> <small class='text-muted ps-2'>({{ trans.error }})</small>
+         {% elif trans.errors %}
+            <span class='badge bg-danger'>Error</span>
+            <ul>
+            {% for d, err in trans.errors.items() %}
+                <li><strong>{{ d }}</strong>: {{ err }} {% if trans.crtsh_report_links and trans.crtsh_report_links[d] %}<a href="{{ trans.crtsh_report_links[d] }}" target="_blank" rel="noopener" class="ms-2">[View on crt.sh]</a>{% endif %}</li>
+            {% endfor %}
+            </ul>
          {% else %}
-              {% set found = trans.crtsh_records_found %}
-              <span class='badge {% if found is not none %}bg-success{% else %}bg-danger{% endif %}'>Checked</span>
-              {% if found is not none %}
-                 <span class='ps-2'>Records found:</span>
-                 <span class='badge {% if found > 0 %}bg-info{% else %}bg-secondary{% endif %}'>{{ found }}</span>
-              {% endif %}
+              <ul>
+              {% for d, records in trans.details.items() %}
+                  <li><strong>{{ d }}</strong>:
+                      {% if records is none %} <span class='badge bg-danger'>Error</span>
+                      {% else %} <span class='badge bg-info'>{{ records|length }} records</span>
+                      {% endif %}
+                      {% if trans.crtsh_report_links and trans.crtsh_report_links[d] %}<a href="{{ trans.crtsh_report_links[d] }}" target="_blank" rel="noopener" class="ms-2">[View on crt.sh]</a>{% endif %}
+                  </li>
+              {% endfor %}
+              </ul>
+              <span class='ps-2'>Total records found:</span> <span class='badge bg-info'>{{ trans.crtsh_records_found }}</span>
          {% endif %}
     </div>
 
@@ -319,9 +369,8 @@ HTML_TEMPLATE = """
 </div> {# End Card #}
 {% endfor %}
 {% endif %}
-<footer class='text-center text-muted mt-5 mb-3'> <small>TLS Analyzer Tool v1.7 (CRL Default ON)</small> </footer>
+<footer class='text-center text-muted mt-5 mb-3'> <small><a href="https://github.com/obeone/check-tls" target="_blank" rel="noopener">TLS Check</a></small></footer>
 </div>
-<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
 </body>
 </html>
 """
@@ -357,7 +406,8 @@ def run_server(args):
             return render_template_string(HTML_TEMPLATE, results=results,
                                           insecure_checked=insecure_checked,
                                           no_transparency_checked=no_transparency_checked,
-                                          no_crl_check_checked=no_crl_check_checked)
+                                          no_crl_check_checked=no_crl_check_checked,
+                                          get_tooltip=get_tooltip)
 
     logging.info(f"Starting Flask server on http://0.0.0.0:{args.port}")
     try:
