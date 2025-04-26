@@ -146,6 +146,9 @@ curl -X POST http://localhost:8000/ \
 
 ## 🌐 Web Interface
 
+![Screenshot of Web UI](screenshot.png)
+*Example: HTML-based interactive certificate analysis*
+
 - User-friendly web UI for interactive analysis
 - Supports all CLI options via the browser
 - Great for demos, teams, and non-CLI users!
