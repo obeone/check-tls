@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='check-tls',
@@ -6,7 +6,8 @@ setup(
     author='Grégoire Compagnon (obeone)',
     url='https://github.com/obeone/check-tls',
     license='MIT',
-    py_modules=['check_tls'],
+    packages=find_packages(where='src'),
+    package_dir={'': 'src'},
     install_requires=[
         'cryptography',
         'coloredlogs',
@@ -14,7 +15,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'check-tls = check_tls:main',
+            'check-tls = check_tls.main:main',
         ],
     },
 )

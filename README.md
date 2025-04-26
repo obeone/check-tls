@@ -1,72 +1,50 @@
 # ✨ Check TLS Certificate ✨
 
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) <!-- Assuming MIT, update if different -->
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-obeoneorg%2Fcheck--tls-blue?logo=docker)](https://hub.docker.com/r/obeoneorg/check-tls)
 [![GHCR.io](https://img.shields.io/badge/GHCR.io-obeone%2Fcheck--tls-blue?logo=github)](https://ghcr.io/obeone/check-tls)
 
-A versatile Python tool to analyze TLS/SSL certificates for one or multiple domains, featuring profile detection, chain validation, and multiple output formats. Includes a handy web interface mode!
+A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for any domain.
 
 ---
 
 ## 📚 Table of Contents
-
-- [✨ Check TLS Certificate ✨](#-check-tls-certificate-)
-  - [📚 Table of Contents](#-table-of-contents)
-  - [🚀 Features](#-features)
-  - [🛠️ Installation](#️-installation)
-    - [Using Docker](#using-docker)
-    - [Using pip](#using-pip)
-  - [⚙️ Usage](#️-usage)
-    - [Command Line Interface (CLI)](#command-line-interface-cli)
-    - [Docker Container](#docker-container)
-  - [🌐 Web Interface](#-web-interface)
-  - [🤝 Contributing](#-contributing)
-  - [📜 License](#-license)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Web Interface](#web-interface)
+- [Docker](#docker)
+- [Project Structure](#project-structure)
+- [FAQ](#faq)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## 🚀 Features
-
-- **Comprehensive Analysis**: Fetches leaf and intermediate certificates (via AIA).
-- **Full Validation**: Validates the certificate chain against the system's trust store.
-- **Profile Detection**: Identifies certificate usage profiles (e.g., `tlsserver`, `email`, `codeSigning`).
-- **SAN Extraction**: Lists Subject Alternative Names (SANs).
-- **Flexible Output**:
-  - Human-readable console output (with colors!).
-  - JSON format (`-j`/`--json`).
-  - CSV format (`-c`/`--csv`).
-- **Insecure Mode**: Option (`-k`/`--insecure`) to bypass SSL validation for fetching (useful for self-signed certs).
-- **Web Server Mode**: Run an interactive web UI (`-s`/`--server`) to analyze domains on the fly.
-- **Dockerized**: Available as ready-to-use Docker images.
+- **Comprehensive Analysis**: Fetches leaf & intermediate certificates (AIA fetching)
+- **Chain Validation**: Validates against system trust store
+- **Profile Detection**: Detects usage profiles (server, email, code signing, etc.)
+- **CRL & Transparency**: Checks CRL status and certificate transparency logs
+- **Flexible Output**: Human-readable (color), JSON, CSV
+- **Web UI**: Interactive browser-based analysis
+- **Dockerized**: Use with zero local setup
 
 ---
 
 ## 🛠️ Installation
 
-### Using Docker
-
-This is the recommended method for quick use without installing dependencies locally.
-
-Pull the image from Docker Hub or GitHub Container Registry:
-
-```bash
-# Docker Hub
+### With Docker (Recommended)
+```sh
 docker pull obeoneorg/check-tls:latest
-
-# GitHub Container Registry
-docker pull ghcr.io/obeone/check-tls:latest
 ```
 
-See the [Docker Usage](#docker-container) section for how to run the container.
-
-### Using pip
-
-If you prefer to install the script directly into your Python environment:
-
-```bash
-# Ensure you have Python 3.9+ and pip installed
-git clone https://github.com/obeone/check-tls.git # Replace with your actual repo URL
+### With pip
+```sh
+git clone https://github.com/obeone/check-tls.git
 cd check-tls
 pip install .
 ```
@@ -75,73 +53,178 @@ pip install .
 
 ## ⚙️ Usage
 
-### Command Line Interface (CLI)
+### Example (Start with Docker!)
 
-If installed via pip, the script is available as `check-tls`.
-
-```bash
-check-tls [OPTIONS] domain1 [domain2 ...]
-```
-
-**Options:**
-
-- `domain...`: One or more domains to analyze.
-- `-j, --json FILE`: Output JSON report to FILE (`-` for stdout).
-- `-c, --csv FILE`: Output CSV report to FILE (`-` for stdout).
-- `-m, --mode MODE`: Analysis mode: `simple` (leaf only) or `full` (fetch intermediates, default).
-- `-l, --loglevel LEVEL`: Set log level (e.g., `DEBUG`, `INFO`, `WARN`, `ERROR`). Default: `WARN`.
-- `-k, --insecure`: Allow fetching certificates without SSL validation.
-- `-s, --server`: Run as an HTTP server with a web interface.
-- `-p, --port PORT`: Specify server port (default: 8000).
-
-**Examples:**
-
-```bash
-# Analyze a single domain with default settings (full mode)
-check-tls example.com
-
-# Analyze multiple domains and output to JSON file
-check-tls google.com github.com -j report.json
-
-# Analyze in simple mode, ignoring SSL errors, and print CSV to stdout
-check-tls self-signed.local -m simple -k -c -
-
-# Run the web server on port 8080
-check-tls -s -p 8080
-```
-
-### Docker Container
-
-```bash
-# Analyze example.com using the Docker Hub image
+Analyze a domain with Docker:
+```sh
 docker run --rm obeoneorg/check-tls:latest example.com
+```
 
-# Analyze multiple domains and output JSON using the GHCR image
-docker run --rm ghcr.io/obeone/check-tls:latest google.com github.com -j -
+Run the web UI with Docker:
+```sh
+docker run --rm -p 8000:8000 obeoneorg/check-tls:latest --server
+```
+Visit http://localhost:8000 in your browser.
 
-# Run the web server, mapping container port 8000 to host port 8080
-docker run --rm -p 8080:8000 obeoneorg/check-tls:latest -s
-# Then access http://localhost:8080 in your browser
+---
+
+### Command Line
+Analyze a domain:
+```sh
+check-tls example.com
+```
+
+Analyze multiple domains, output JSON:
+```sh
+check-tls google.com github.com -j report.json
+```
+
+Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
+
+**Key options:**
+- `-j, --json FILE`   Output JSON
+- `-c, --csv FILE`    Output CSV
+- `-k, --insecure`    Allow self-signed certs
+- `-s, --server`      Launch web UI
+- `-p, --port`        Web server port
+- `--no-transparency` Skip transparency check
+- `--no-crl-check`    Skip CRL check
+
+### Web Interface
+Start the web UI:
+```sh
+check-tls --server
+# or
+python -m src.main --server
+```
+Visit http://localhost:8000 in your browser.
+
+---
+
+## 🖥️ REST API Usage
+
+The TLS Analyzer also provides a REST API for programmatic access. By default, the web server listens on port 8000.
+
+### Analyze Domains (POST /)
+
+- **Endpoint:** `/`
+- **Method:** `POST`
+- **Content-Type:** `application/x-www-form-urlencoded`
+- **Parameters:**
+  - `domains` (string, required): One or more domains, space or comma separated (e.g. `example.com, google.com`)
+  - `insecure` (optional, value `true`): Allow insecure (self-signed) certs
+  - `no_transparency` (optional, value `true`): Skip certificate transparency check
+  - `no_crl_check` (optional, value `true`): Disable CRL check
+
+#### Example curl Request
+
+```sh
+curl -X POST http://localhost:8000/ \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Accept: application/json" \
+  -d 'domains=example.com,google.com&insecure=true&no_transparency=true'
+```
+
+#### Example JSON Response
+```json
+[
+  {
+    "domain": "example.com",
+    "status": "completed",
+    "analysis_timestamp": "2025-04-26T08:30:00+00:00",
+    "connection_health": { ... },
+    "validation": { ... },
+    "certificates": [ ... ],
+    "crl_check": { ... },
+    "transparency": { ... }
+  },
+  ...
+]
 ```
 
 ---
 
 ## 🌐 Web Interface
 
-When run with the `-s` or `--server` flag (either directly or via Docker), `check-tls` starts a simple Flask web server. Access it via your browser (e.g., `http://localhost:8000` or the port specified with `-p` or mapped in Docker).
+- User-friendly web UI for interactive analysis
+- Supports all CLI options via the browser
+- Great for demos, teams, and non-CLI users!
 
-Enter domains separated by spaces or commas, choose whether to ignore SSL errors, and click "Analyze". The results will be displayed on the page.
+---
 
-![Web Interface Screenshot](screenshot.png)
+## 🗂️ Project Structure
+```
+check-tls/
+├── src/
+│   ├── main.py           # CLI entry point
+│   ├── web_server.py     # Flask web server
+│   ├── tls_checker.py    # Core logic
+│   └── utils/            # Utility modules
+│       ├── cert_utils.py
+│       ├── crl_utils.py
+│       ├── crtsh_utils.py
+│       └── __init__.py
+├── setup.py
+├── Dockerfile
+├── README.md
+└── ...
+```
+
+---
+
+## ❓ FAQ
+
+**Q: Can I use this tool without Python installed?**  
+A: Yes! Use the Docker image for zero local dependencies.
+
+**Q: How do I analyze multiple domains at once?**  
+A: Just list them: `check-tls domain1.com domain2.com ...`
+
+**Q: How do I get JSON or CSV output?**  
+A: Use `-j file.json` or `-c file.csv`. Use `-` for stdout.
+
+**Q: Is this safe for self-signed certificates?**  
+A: Use the `-k` or `--insecure` flag to allow fetching certs without validation.
+
+**Q: Can I run this as a web service?**  
+A: Yes! Use `check-tls --server` or the Docker web mode.
+
+**Q: Where are the logs?**  
+A: By default, logs print to the console. Use `-l DEBUG` for more detail.
+
+---
+
+## 🛠️ Troubleshooting
+
+**Problem:** `ModuleNotFoundError` or import errors after moving files
+- **Solution:** Make sure you installed with `pip install .` from the project root, and that you run scripts via `check-tls ...` or `python -m src.main ...`.
+
+**Problem:** `ERROR: ... does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found.`
+- **Solution:** Ensure `setup.py` is at the project root, not inside `src/`.
+
+**Problem:** Web server runs but browser shows error
+- **Solution:** Check the logs for Python exceptions, and ensure Flask is installed.
+
+**Problem:** Docker build fails or can't find files
+- **Solution:** Make sure your Dockerfile matches the new project structure and copies both `setup.py` and the `src/` folder.
+
+**Problem:** Can't bind to port 8000
+- **Solution:** Make sure the port is not already in use, or use `-p` to specify a different port.
+
+---
+
+## 👩‍💻 Development
+- All code is in `src/` (import as `from src.utils import ...`)
+- Add new features as modules in `src/` or `src/utils/`
+- Run tests and lint before submitting PRs
+- For development, use `pip install -e .` to enable editable installs.
 
 ---
 
 ## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues on the [GitHub repository](https://github.com/obeone/check-tls).
+Pull requests are welcome! Please open an issue to discuss major changes.
 
 ---
 
 ## 📜 License
-
-This project is licensed under the MIT License. Author: Grégoire Compagnon [obeone](https://github.com/obeone).
+MIT License © Grégoire Compagnon (obeone)
