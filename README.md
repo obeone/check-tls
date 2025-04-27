@@ -2,6 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI Version](https://img.shields.io/pypi/v/check-tls.svg)](https://pypi.org/project/check-tls/)
 [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-obeoneorg%2Fcheck--tls-blue?logo=docker)](https://hub.docker.com/r/obeoneorg/check-tls)
 [![GHCR.io](https://img.shields.io/badge/GHCR.io-obeone%2Fcheck--tls-blue?logo=github)](https://ghcr.io/obeone/check-tls)
 
@@ -13,10 +14,11 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 - [🚀 Features](#-features)
 - [🛠️ Installation](#️-installation)
-  - [With Docker (Recommended)](#with-docker-recommended)
-  - [With pip](#with-pip)
+  - [Recommended: With pipx](#recommended-with-pipx)
+  - [Alternative: With pip](#alternative-with-pip)
+  - [With Docker](#with-docker)
 - [⚙️ Usage](#️-usage)
-  - [Example (Start with Docker!)](#example-start-with-docker)
+  - [Example (pip)](#example-pip)
   - [Command Line](#command-line)
 - [🖥️ REST API Usage](#️-rest-api-usage)
   - [Analyze Domains (POST /api/analyze)](#analyze-domains-post-apianalyze)
@@ -29,6 +31,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 - [👩‍💻 Development](#-development)
 - [🤝 Contributing](#-contributing)
 - [📜 License](#-license)
+- [📦 Release & Publish](#-release--publish)
 
 ---
 
@@ -46,41 +49,45 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 ## 🛠️ Installation
 
-### With Docker (Recommended)
+### Recommended: With pipx
+
+`pipx` installs CLI tools in isolated environments, avoiding dependency conflicts and keeping your system clean.
+
+```sh
+pipx install check-tls
+```
+
+### Alternative: With pip
+
+```sh
+pip install check-tls
+```
+
+### With Docker
 
 ```sh
 docker pull obeoneorg/check-tls:latest
-```
-
-### With pip
-
-```sh
-git clone https://github.com/obeone/check-tls.git
-cd check-tls
-pip install .
 ```
 
 ---
 
 ## ⚙️ Usage
 
-### Example (Start with Docker!)
+### Example (pip)
 
-Analyze a domain with Docker:
+Analyze a domain:
 
 ```sh
-docker run --rm obeoneorg/check-tls:latest example.com
+check-tls example.com
 ```
 
-Run the web UI with Docker:
+Run the web UI:
 
 ```sh
-docker run --rm -p 8000:8000 obeoneorg/check-tls:latest --server
+check-tls --server
 ```
 
 Visit <http://localhost:8000> in your browser.
-
----
 
 ### Command Line
 
@@ -252,3 +259,11 @@ Pull requests are welcome! Please open an issue to discuss major changes.
 ## 📜 License
 
 MIT License © Grégoire Compagnon (obeone)
+
+---
+
+## 📦 Release & Publish
+
+To publish a new version to PyPI, push a new release to GitHub. The GitHub Actions workflow will build and publish automatically if the release tag matches the version in `setup.py`.
+
+See `.github/workflows/publish-to-pypi.yaml` for details.

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "check-tls"
+version = "1.0.0"
+description = "A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for any domain."
+authors = [
+    { name="Grégoire Compagnon (obeone)", email="obeone@obeone.org" },
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography",
+    "coloredlogs",
+    "flask"
+]
+
+[project.urls]
+Homepage = "https://github.com/obeone/check-tls"
+Repository = "https://github.com/obeone/check-tls"
+
+[project.scripts]
+check-tls = "check_tls.main:main"
