@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main
-
+  release:
+    types: [published]
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -46,12 +47,14 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'release' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
             ghcr.io/obeone/check-tls:latest
             docker.io/obeoneorg/check-tls:latest
+            ghcr.io/obeone/check-tls:${{ github.event.release.tag_name }}
+            docker.io/obeoneorg/check-tls:${{ github.event.release.tag_name }}
           platforms: linux/amd64,linux/arm64,linux/i386
 
       - name: Set up cosign
