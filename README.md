@@ -19,7 +19,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
   - [Example (Start with Docker!)](#example-start-with-docker)
   - [Command Line](#command-line)
 - [🖥️ REST API Usage](#️-rest-api-usage)
-  - [Analyze Domains (POST /)](#analyze-domains-post-)
+  - [Analyze Domains (POST /api/analyze)](#analyze-domains-post-apianalyze)
     - [Example curl Request](#example-curl-request)
     - [Example JSON Response](#example-json-response)
 - [🌐 Web Interface](#-web-interface)
@@ -117,24 +117,23 @@ Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 
 The TLS Analyzer also provides a REST API for programmatic access. By default, the web server listens on port 8000.
 
-### Analyze Domains (POST /)
+### Analyze Domains (POST /api/analyze)
 
-- **Endpoint:** `/`
+- **Endpoint:** `/api/analyze`
 - **Method:** `POST`
-- **Content-Type:** `application/x-www-form-urlencoded`
-- **Parameters:**
-  - `domains` (string, required): One or more domains, space or comma separated (e.g. `example.com, google.com`)
-  - `insecure` (optional, value `true`): Allow insecure (self-signed) certs
-  - `no_transparency` (optional, value `true`): Skip certificate transparency check
-  - `no_crl_check` (optional, value `true`): Disable CRL check
+- **Content-Type:** `application/json`
+- **Request Body:**
+  - `domains` (array of strings, required): List of domains to analyze (e.g. `["example.com", "google.com"]`)
+  - `insecure` (optional, boolean): Allow insecure (self-signed) certs
+  - `no_transparency` (optional, boolean): Skip certificate transparency check
+  - `no_crl_check` (optional, boolean): Disable CRL check
 
 #### Example curl Request
 
 ```sh
-curl -X POST http://localhost:8000/ \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -H "Accept: application/json" \
-  -d 'domains=example.com,google.com&insecure=true&no_transparency=true'
+curl -X POST http://localhost:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"domains": ["example.com", "google.com"], "insecure": true, "no_transparency": true}'
 ```
 
 #### Example JSON Response

@@ -409,6 +409,24 @@ def run_server(args):
                                           no_crl_check_checked=no_crl_check_checked,
                                           get_tooltip=get_tooltip)
 
+    @app.route('/api/analyze', methods=['POST'])
+    def api_analyze():
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+        data = request.get_json()
+        domains = data.get('domains')
+        if not domains or not isinstance(domains, list):
+            return jsonify({'error': 'JSON body must contain a list of domains under "domains"'}), 400
+        insecure_flag = bool(data.get('insecure', False))
+        no_transparency_flag = bool(data.get('no_transparency', False))
+        no_crl_check_flag = bool(data.get('no_crl_check', False))
+        results = [analyze_certificates(domain,
+                                        insecure=insecure_flag,
+                                        skip_transparency=no_transparency_flag,
+                                        perform_crl_check=not no_crl_check_flag)
+                   for domain in domains]
+        return jsonify(results)
+
     logging.info(f"Starting Flask server on http://0.0.0.0:{args.port}")
     try:
         app.run(host='0.0.0.0', port=args.port, debug=False)
