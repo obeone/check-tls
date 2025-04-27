@@ -9,6 +9,7 @@
           musl-dev \
           libffi-dev \
           python3-dev \
+          openssl-dev \
           py3-pip \
           rust \
           cargo
