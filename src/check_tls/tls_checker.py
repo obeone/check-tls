@@ -19,39 +19,76 @@ import json
 
 
 def fetch_leaf_certificate_and_conn_info(domain: str, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
+    """
+    Fetch the leaf TLS certificate and connection information from a domain's HTTPS server.
+
+    Parameters:
+        domain (str): The domain name to connect to.
+        insecure (bool): If True, ignore SSL certificate verification errors.
+
+    Returns:
+        Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
+            - The leaf x509 certificate if successfully fetched, else None.
+            - A dictionary with connection info including TLS version, cipher suite, and error details if any.
+    """
     logger = logging.getLogger("certcheck")
     logger.debug(f"Connecting to {domain}:443 to fetch certificate and connection info...")
+
+    # Create SSL context, optionally ignoring verification errors if insecure is True
     context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
-    conn_info = {"checked": False, "error": None, "tls_version": None, "supports_tls13": None, "cipher_suite": None}
+
+    # Initialize connection info dictionary with default values
+    conn_info = {
+        "checked": False,
+        "error": None,
+        "tls_version": None,
+        "supports_tls13": None,
+        "cipher_suite": None,
+    }
+
     try:
+        # Set minimum TLS version to 1.2 if supported by the SSL module
         context.minimum_version = ssl.TLSVersion.TLSv1_2
     except AttributeError:
         logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
+
     sock = None
     ssock = None
+
     try:
+        # Establish TCP connection to domain on port 443 with timeout
         sock = socket.create_connection((domain, 443), timeout=10)
+        # Wrap socket with SSL context for TLS handshake
         ssock = context.wrap_socket(sock, server_hostname=domain)
+
+        # Extract TLS version and cipher suite details
         conn_info["tls_version"] = ssock.version()
         cipher_details = ssock.cipher()
         if cipher_details:
             conn_info["cipher_suite"] = cipher_details[0]
         conn_info["supports_tls13"] = conn_info["tls_version"] == "TLSv1.3"
         conn_info["checked"] = True
+
         logger.info(f"Connection info for {domain}: TLS={conn_info['tls_version']}, Cipher={conn_info['cipher_suite']}")
+
+        # Get the peer certificate in DER format
         der_cert = ssock.getpeercert(binary_form=True)
         if der_cert is None:
             logger.error(f"No certificate received from server {domain}.")
             conn_info["error"] = "No certificate received from server."
             return None, conn_info
+
+        # Load the DER certificate into an x509 object
         cert = x509.load_der_x509_certificate(der_cert, default_backend())
         logger.info(f"Fetched leaf certificate from {domain}")
         return cert, conn_info
+
     except socket.timeout:
         error_msg = f"Connection to {domain} timed out."
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     except ssl.SSLCertVerificationError as e:
         error_msg = f"SSL certificate verification failed for {domain}: {e}."
         if not insecure:
@@ -75,31 +112,37 @@ def fetch_leaf_certificate_and_conn_info(domain: str, insecure: bool = False) ->
                 logger.error(f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}")
                 conn_info["error"] = error_msg + f" | Inner error: {inner_e}"
                 return None, conn_info
+
     except ssl.SSLError as e:
         error_msg = f"An SSL error occurred connecting to {domain}: {e}"
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     except ConnectionRefusedError:
         error_msg = f"Connection refused by {domain}:443."
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     except socket.gaierror:
         error_msg = f"Could not resolve domain name: {domain}"
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     except OSError as e:
         error_msg = f"Network/OS error connecting to {domain}: {e}"
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     except Exception as e:
         error_msg = f"An unexpected error occurred during connection/certificate fetch for {domain}: {e}"
         logger.exception(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
+
     finally:
         if ssock:
             try:
@@ -113,26 +156,54 @@ def fetch_leaf_certificate_and_conn_info(domain: str, insecure: bool = False) ->
                 pass
 
 def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certificate]:
+    """
+    Fetch intermediate certificates referenced by the Authority Information Access (AIA) extension of a certificate.
+
+    Parameters:
+        cert (x509.Certificate): The leaf or intermediate certificate to fetch intermediates for.
+
+    Returns:
+        List[x509.Certificate]: A list of intermediate certificates fetched from AIA URLs.
+    """
+    import urllib.error  # Import here to fix type error and ensure availability
+
     logger = logging.getLogger("certcheck")
     intermediates = []
+
     try:
-        aia = cert.extensions.get_extension_for_oid(ExtensionOID.AUTHORITY_INFORMATION_ACCESS).value
-        ca_issuer_urls = [desc.access_location.value for desc in aia if desc.access_method == AuthorityInformationAccessOID.CA_ISSUERS and isinstance(desc.access_location, x509.UniformResourceIdentifier)]
+        # Get the AIA extension value which contains URLs to intermediate certs
+        aia_ext = cert.extensions.get_extension_for_oid(ExtensionOID.AUTHORITY_INFORMATION_ACCESS)
+        aia = aia_ext.value
+
+        # Extract CA Issuer URLs from AIA extension
+        ca_issuer_urls = []
+        for desc in aia:
+            if desc.access_method == AuthorityInformationAccessOID.CA_ISSUERS and isinstance(desc.access_location, x509.UniformResourceIdentifier):
+                ca_issuer_urls.append(desc.access_location.value)
+
         fetched_urls = set()
+
         for url in ca_issuer_urls:
             if url in fetched_urls:
                 continue
             fetched_urls.add(url)
             logger.info(f"Fetching intermediate certificate from AIA URL: {url}")
+
             try:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Python-CertCheck/1.3'})
                 with urllib.request.urlopen(req, timeout=10) as response:
                     if response.status == 200:
                         intermediate_der = response.read()
                         content_type = response.info().get_content_type().lower()
-                        allowed_types = ['application/pkix-cert', 'application/x-x509-ca-cert', 'application/octet-stream', 'application/pkcs7-mime']
+                        allowed_types = [
+                            'application/pkix-cert',
+                            'application/x-x509-ca-cert',
+                            'application/octet-stream',
+                            'application/pkcs7-mime'
+                        ]
                         if any(allowed in content_type for allowed in allowed_types):
                             try:
+                                # Detect PEM or DER format and load accordingly
                                 if b"-----BEGIN CERTIFICATE-----" in intermediate_der:
                                     intermediate_cert = x509.load_pem_x509_certificate(intermediate_der, default_backend())
                                 else:
@@ -153,10 +224,12 @@ def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certifi
                 logger.warning(f"Timeout fetching intermediate certificate from {url}")
             except Exception as e:
                 logger.warning(f"Unexpected error fetching intermediate certificate from {url}: {e}")
+
     except x509.ExtensionNotFound:
         logger.info("No AIA extension found in the certificate to fetch intermediates.")
     except Exception as e:
         logger.warning(f"Error accessing AIA extension: {e}")
+
     return intermediates
 
 def validate_certificate_chain(domain: str) -> bool:
@@ -191,61 +264,147 @@ def validate_certificate_chain(domain: str) -> bool:
         return False
 
 def detect_profile(cert: x509.Certificate) -> str:
+    """
+    Detect the certificate profile based on Extended Key Usage (EKU) and Key Usage (KU) extensions.
+
+    Parameters:
+        cert (x509.Certificate): The certificate to analyze.
+
+    Returns:
+        str: A string describing the detected profile of the certificate.
+    """
     logger = logging.getLogger("certcheck")
-    profile = "Unknown / Undetermined"; has_eku = False
+    profile = "Unknown / Undetermined"
+    has_eku = False
+
     try:
-        try:
-            ext_key_usage_ext = cert.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE)
-            ext_key_usage = ext_key_usage_ext.value; has_eku = True
-            usages = list(ext_key_usage)
-            if ExtendedKeyUsageOID.SERVER_AUTH in usages:
-                profile = "TLS Server"
-                other_ekus = [oid for oid in usages if oid != ExtendedKeyUsageOID.SERVER_AUTH]
-                if other_ekus: profile += f" (+ {', '.join([oid._name for oid in other_ekus if hasattr(oid, '_name')])})"
-            elif ExtendedKeyUsageOID.CLIENT_AUTH in usages: profile = "TLS Client"
-            elif ExtendedKeyUsageOID.EMAIL_PROTECTION in usages: profile = "Email Protection (S/MIME)"
-            elif ExtendedKeyUsageOID.CODE_SIGNING in usages: profile = "Code Signing"
-            elif ExtendedKeyUsageOID.TIME_STAMPING in usages: profile = "Time Stamping"
-            elif ExtendedKeyUsageOID.OCSP_SIGNING in usages: profile = "OCSP Signing"
-            elif ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE in usages: profile = "Any Extended Key Usage"
-            else: profile = f"Custom/Other EKU ({', '.join([oid.dotted_string for oid in usages])})"
-            if ext_key_usage_ext.critical: profile += " (Critical)"
-        except x509.ExtensionNotFound: logger.debug("No Extended Key Usage extension found, checking Key Usage.")
-        try:
-            key_usage_ext = cert.extensions.get_extension_for_oid(ExtensionOID.KEY_USAGE)
-            key_usage = key_usage_ext.value
-            if profile == "TLS Server" or profile.startswith("TLS Server ("):
-                has_required_ku = (getattr(key_usage, "digital_signature", False) or getattr(key_usage, "key_encipherment", False) or getattr(key_usage, 'key_agreement', False))
-                if not has_required_ku: profile += " (Warning: Missing typical KU for TLS)"
-            elif profile.startswith("Unknown") or profile == "Custom/Other EKU":
-                if getattr(key_usage, "digital_signature", False) and not has_eku: profile = "Digital Signature (Generic)"
-                elif getattr(key_usage, "key_encipherment", False) and not has_eku: profile = "Key Encipherment (Generic)"
-            if key_usage_ext.critical: profile += " (KU Critical)"
-        except x509.ExtensionNotFound:
-            if not has_eku: profile = "Legacy / Incomplete (No KU/EKU extensions)"
+        # Attempt to get Extended Key Usage extension
+        ext_key_usage_ext = cert.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE)
+        ext_key_usage = ext_key_usage_ext.value
+        has_eku = True
+
+        # ext_key_usage is not directly iterable, convert to list explicitly
+        usages = list(ext_key_usage)
+
+        if ExtendedKeyUsageOID.SERVER_AUTH in usages:
+            profile = "TLS Server"
+            other_ekus = [oid for oid in usages if oid != ExtendedKeyUsageOID.SERVER_AUTH]
+            if other_ekus:
+                profile += f" (+ {', '.join([oid._name for oid in other_ekus if hasattr(oid, '_name')])})"
+        elif ExtendedKeyUsageOID.CLIENT_AUTH in usages:
+            profile = "TLS Client"
+        elif ExtendedKeyUsageOID.EMAIL_PROTECTION in usages:
+            profile = "Email Protection (S/MIME)"
+        elif ExtendedKeyUsageOID.CODE_SIGNING in usages:
+            profile = "Code Signing"
+        elif ExtendedKeyUsageOID.TIME_STAMPING in usages:
+            profile = "Time Stamping"
+        elif ExtendedKeyUsageOID.OCSP_SIGNING in usages:
+            profile = "OCSP Signing"
+        elif ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE in usages:
+            profile = "Any Extended Key Usage"
+        else:
+            profile = f"Custom/Other EKU ({', '.join([oid.dotted_string for oid in usages])})"
+
+        if ext_key_usage_ext.critical:
+            profile += " (Critical)"
+
+    except x509.ExtensionNotFound:
+        logger.debug("No Extended Key Usage extension found, checking Key Usage.")
+
+    try:
+        # Attempt to get Key Usage extension
+        key_usage_ext = cert.extensions.get_extension_for_oid(ExtensionOID.KEY_USAGE)
+        key_usage = key_usage_ext.value
+
+        # Access attributes safely with getattr
+        if profile == "TLS Server" or profile.startswith("TLS Server ("):
+            has_required_ku = (
+                getattr(key_usage, "digital_signature", False)
+                or getattr(key_usage, "key_encipherment", False)
+                or getattr(key_usage, "key_agreement", False)
+            )
+            if not has_required_ku:
+                profile += " (Warning: Missing typical KU for TLS)"
+        elif profile.startswith("Unknown") or profile == "Custom/Other EKU":
+            if getattr(key_usage, "digital_signature", False) and not has_eku:
+                profile = "Digital Signature (Generic)"
+            elif getattr(key_usage, "key_encipherment", False) and not has_eku:
+                profile = "Key Encipherment (Generic)"
+
+        if key_usage_ext.critical:
+            profile += " (KU Critical)"
+
+    except x509.ExtensionNotFound:
+        if not has_eku:
+            profile = "Legacy / Incomplete (No KU/EKU extensions)"
+
     except Exception as e:
-        logger.warning(f"Could not detect profile due to error: {e}"); profile = "Error detecting profile"
+        logger.warning(f"Could not detect profile due to error: {e}")
+        profile = "Error detecting profile"
+
     return profile
 
 def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True) -> dict:
+    """
+    Analyze the certificates of a domain, including leaf and intermediate certificates,
+    perform validation, CRL checks, and certificate transparency checks.
+
+    Parameters:
+        domain (str): The domain to analyze.
+        mode (str): Analysis mode, "full" to fetch intermediates, otherwise leaf only.
+        insecure (bool): Whether to ignore SSL verification errors when fetching certificates.
+        skip_transparency (bool): Whether to skip Certificate Transparency log checks.
+        perform_crl_check (bool): Whether to perform Certificate Revocation List (CRL) checks.
+
+    Returns:
+        dict: A dictionary containing analysis results, including connection info,
+              validation status, certificate details, transparency info, and CRL check results.
+    """
     logger = logging.getLogger("certcheck")
     result = {
-        "domain": domain, "analysis_timestamp": datetime.datetime.now(timezone.utc).isoformat(),
-        "status": "pending", "error_message": None,
-        "connection_health": { "checked": False, "error": None, "tls_version": None, "supports_tls13": None, "cipher_suite": None, },
-        "validation": { "system_trust_store": None, "error": None },
+        "domain": domain,
+        "analysis_timestamp": datetime.datetime.now(timezone.utc).isoformat(),
+        "status": "pending",
+        "error_message": None,
+        "connection_health": {
+            "checked": False,
+            "error": None,
+            "tls_version": None,
+            "supports_tls13": None,
+            "cipher_suite": None,
+        },
+        "validation": {
+            "system_trust_store": None,
+            "error": None,
+        },
         "certificates": [],
-        "transparency": { "checked": False, "crtsh_records_found": None, "error": None, "details": None, "errors": None },
-        "crl_check": { "checked": False, "leaf_status": None, "details": None }
+        "transparency": {
+            "checked": False,
+            "crtsh_records_found": None,
+            "error": None,
+            "details": None,
+            "errors": None,
+        },
+        "crl_check": {
+            "checked": False,
+            "leaf_status": None,
+            "details": None,
+        },
     }
+
     logger.info(f"Fetching leaf certificate and connection info for {domain}...")
     leaf_cert, conn_info = fetch_leaf_certificate_and_conn_info(domain, insecure=insecure)
-    if conn_info: result["connection_health"].update(conn_info)
+    if conn_info:
+        result["connection_health"].update(conn_info)
+
     if leaf_cert is None:
         fetch_error_msg = result["connection_health"].get("error", "Failed to retrieve leaf certificate.")
         logger.error(f"Cannot proceed with certificate analysis for {domain}: {fetch_error_msg}")
-        result["status"] = "failed"; result["error_message"] = f"Failed to fetch leaf certificate/connection info: {fetch_error_msg}"
+        result["status"] = "failed"
+        result["error_message"] = f"Failed to fetch leaf certificate/connection info: {fetch_error_msg}"
         return result
+
     logger.info(f"Validating chain against system trust store for {domain}...")
     try:
         result["validation"]["system_trust_store"] = validate_certificate_chain(domain)
@@ -254,8 +413,11 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
     except Exception as e:
         logger.error(f"Error during system trust validation for {domain}: {e}")
         result["validation"]["error"] = str(e)
-        if not result["error_message"]: result["error_message"] = f"System validation error: {e}"
+        if not result["error_message"]:
+            result["error_message"] = f"System validation error: {e}"
+
     certs = [leaf_cert]
+
     if mode == "full":
         logger.info(f"Fetching intermediate certificates for {domain} via AIA...")
         try:
@@ -264,36 +426,57 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
             logger.info(f"Found {len(intermediates)} intermediate(s) for {domain} via AIA.")
         except Exception as e:
             logger.warning(f"Could not fetch or process intermediate certificates for {domain}: {e}")
+
     logger.info(f"Analyzing {len(certs)} certificate(s) found for {domain}...")
     all_certs_analyzed = True
+
     for i, cert in enumerate(certs):
         try:
             key_algo, key_size = get_public_key_details(cert)
+
+            # Normalize datetime to UTC if naive
             not_before_utc = cert.not_valid_before_utc.replace(tzinfo=timezone.utc) if cert.not_valid_before_utc.tzinfo is None else cert.not_valid_before_utc
             not_after_utc = cert.not_valid_after_utc.replace(tzinfo=timezone.utc) if cert.not_valid_after_utc.tzinfo is None else cert.not_valid_after_utc
-            is_ca = False; path_len = None
+
+            is_ca = False
+            path_len = None
             try:
                 bc = cert.extensions.get_extension_for_oid(ExtensionOID.BASIC_CONSTRAINTS).value
-                is_ca = bc.ca; path_len = bc.path_length
+                is_ca = bc.ca
+                path_len = bc.path_length
             except x509.ExtensionNotFound:
                 is_ca = False
             except Exception as bc_e:
                 logger.warning(f"Could not read BasicConstraints for cert {i}: {bc_e}")
+
             common_name = get_common_name(cert.subject)
+
             cert_data = {
-                "chain_index": i, "subject": cert.subject.rfc4514_string(), "issuer": cert.issuer.rfc4514_string(),
-                "common_name": common_name, "serial_number": hex(cert.serial_number), "version": str(cert.version),
-                "not_before": not_before_utc.isoformat(), "not_after": not_after_utc.isoformat(),
-                "days_remaining": calculate_days_remaining(cert), "sha256_fingerprint": get_sha256_fingerprint(cert),
-                "signature_algorithm": get_signature_algorithm(cert), "public_key_algorithm": key_algo,
-                "public_key_size_bits": key_size, "profile": detect_profile(cert), "san": extract_san(cert),
-                "has_scts": has_scts(cert), "is_ca": is_ca, "path_length_constraint": path_len,
+                "chain_index": i,
+                "subject": cert.subject.rfc4514_string(),
+                "issuer": cert.issuer.rfc4514_string(),
+                "common_name": common_name,
+                "serial_number": hex(cert.serial_number),
+                "version": str(cert.version),
+                "not_before": not_before_utc.isoformat(),
+                "not_after": not_after_utc.isoformat(),
+                "days_remaining": calculate_days_remaining(cert),
+                "sha256_fingerprint": get_sha256_fingerprint(cert),
+                "signature_algorithm": get_signature_algorithm(cert),
+                "public_key_algorithm": key_algo,
+                "public_key_size_bits": key_size,
+                "profile": detect_profile(cert),
+                "san": extract_san(cert),
+                "has_scts": has_scts(cert),
+                "is_ca": is_ca,
+                "path_length_constraint": path_len,
             }
             result["certificates"].append(cert_data)
         except Exception as e:
             logger.error(f"Failed to analyze certificate certificate #{i} for {domain}: {e}", exc_info=True)
             all_certs_analyzed = False
             result["certificates"].append({"chain_index": i, "error": f"Failed to parse certificate details: {e}"})
+
     if perform_crl_check:
         logger.info(f"Performing CRL check for leaf certificate of {domain}...")
         result["crl_check"]["checked"] = True
@@ -313,6 +496,7 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
     else:
         logger.info(f"Skipping CRL check for {domain} as requested.")
         result["crl_check"]["checked"] = False
+
     # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
         ct_results = query_crtsh_multi(domain)
@@ -336,6 +520,7 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
         result['transparency'] = transparency_summary
     else:
         result['transparency'] = {'checked': False}
+
     if result["status"] != "failed":
         if not result["error_message"] and all_certs_analyzed:
             result["status"] = "completed"
@@ -346,6 +531,7 @@ def analyze_certificates(domain: str, mode: str = "full", insecure: bool = False
                 result["error_message"] += f" | {error_suffix}"
             elif not result["error_message"]:
                 result["error_message"] = error_suffix
+
     return result
 
 def get_log_level(level_str: str):

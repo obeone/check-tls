@@ -7,6 +7,15 @@ from markupsafe import Markup
 
 # HTML template for the web interface
 def get_tooltip(text):
+    """
+    Generate a Bootstrap tooltip icon with the given text.
+
+    Args:
+        text (str): The tooltip text to display on hover.
+
+    Returns:
+        Markup: A Markup string containing the HTML for the tooltip icon.
+    """
     return Markup(f"<span data-bs-toggle='tooltip' data-bs-placement='top' title='{text}'>🛈</span>")
 
 HTML_TEMPLATE = """
@@ -378,53 +387,119 @@ HTML_TEMPLATE = """
 def run_server(args):
     """
     Run the Flask web server for interactive TLS analysis.
+
+    This function initializes the Flask application, sets up routes for the
+    web interface and API, and starts the server on the specified port.
+
+    Args:
+        args (argparse.Namespace): Parsed command-line arguments containing
+            configuration options such as the port number and flags for
+            insecure connections, transparency checks, and CRL checks.
+
+    Routes:
+        '/' (GET, POST): Main page for domain input and displaying results.
+        '/api/analyze' (POST): API endpoint for JSON-based domain analysis.
+
+    The web interface supports form submission with domain names and options,
+    and returns analysis results rendered in HTML or JSON format based on the
+    Accept header.
     """
     app = Flask(__name__)
     app.config['SCRIPT_ARGS'] = args
 
     @app.route('/', methods=['GET', 'POST'])
     def index():
+        """
+        Handle the main page requests for TLS analysis.
+
+        GET: Render the input form.
+        POST: Process submitted domains and display analysis results.
+
+        Returns:
+            str or Response: Rendered HTML page or JSON response with results.
+        """
         script_args = current_app.config['SCRIPT_ARGS']
         results = None
+
+        # Preserve checkbox states from script arguments for initial form rendering
         insecure_checked = script_args.insecure
         no_transparency_checked = script_args.no_transparency
         no_crl_check_checked = script_args.no_crl_check
 
         if request.method == 'POST':
+            # Parse and clean domain input from form
             raw_domains = request.form.get('domains', '')
             domains = [d.strip() for d in raw_domains.replace(',', ' ').split() if d.strip()]
+
+            # Parse flags from form checkboxes
             insecure_flag = request.form.get('insecure') == 'true'
             no_transparency_flag = request.form.get('no_transparency') == 'true'
             no_crl_check_flag = request.form.get('no_crl_check') == 'true'
-            results = [analyze_certificates(domain, insecure=insecure_flag, skip_transparency=no_transparency_flag, perform_crl_check=not no_crl_check_flag) for domain in domains]
+
+            # Analyze certificates for each domain with specified options
+            results = [
+                analyze_certificates(
+                    domain,
+                    insecure=insecure_flag,
+                    skip_transparency=no_transparency_flag,
+                    perform_crl_check=not no_crl_check_flag
+                )
+                for domain in domains
+            ]
+
+        # Check if client expects JSON response
         accept_header = request.headers.get('Accept', '')
         if accept_header == 'application/json' and results is not None:
             response = jsonify(results)
             response.mimetype = 'application/json; charset=utf-8'
             return response
         else:
-            return render_template_string(HTML_TEMPLATE, results=results,
-                                          insecure_checked=insecure_checked,
-                                          no_transparency_checked=no_transparency_checked,
-                                          no_crl_check_checked=no_crl_check_checked,
-                                          get_tooltip=get_tooltip)
+            # Render HTML template with results and form state
+            return render_template_string(
+                HTML_TEMPLATE,
+                results=results,
+                insecure_checked=insecure_checked,
+                no_transparency_checked=no_transparency_checked,
+                no_crl_check_checked=no_crl_check_checked,
+                get_tooltip=get_tooltip
+            )
 
     @app.route('/api/analyze', methods=['POST'])
     def api_analyze():
+        """
+        API endpoint to analyze TLS certificates for a list of domains.
+
+        Expects a JSON body with a "domains" list and optional flags:
+        - insecure (bool)
+        - no_transparency (bool)
+        - no_crl_check (bool)
+
+        Returns:
+            JSON response with analysis results or error message.
+        """
         if not request.is_json:
             return jsonify({'error': 'Request must be JSON'}), 400
+
         data = request.get_json()
         domains = data.get('domains')
+
         if not domains or not isinstance(domains, list):
             return jsonify({'error': 'JSON body must contain a list of domains under "domains"'}), 400
+
         insecure_flag = bool(data.get('insecure', False))
         no_transparency_flag = bool(data.get('no_transparency', False))
         no_crl_check_flag = bool(data.get('no_crl_check', False))
-        results = [analyze_certificates(domain,
-                                        insecure=insecure_flag,
-                                        skip_transparency=no_transparency_flag,
-                                        perform_crl_check=not no_crl_check_flag)
-                   for domain in domains]
+
+        results = [
+            analyze_certificates(
+                domain,
+                insecure=insecure_flag,
+                skip_transparency=no_transparency_flag,
+                perform_crl_check=not no_crl_check_flag
+            )
+            for domain in domains
+        ]
+
         return jsonify(results)
 
     logging.info(f"Starting Flask server on http://0.0.0.0:{args.port}")
@@ -435,7 +510,15 @@ def run_server(args):
 
 
 def get_flask_app():
-    """Function to return the app instance, needed for WSGI servers like waitress."""
+    """
+    Create and return a Flask app instance for WSGI servers.
+
+    This function provides a Flask app instance with similar configuration
+    as run_server, suitable for deployment with WSGI servers like waitress.
+
+    Returns:
+        Flask: Configured Flask application instance.
+    """
     app = Flask(__name__)
-    # Add similar logic as run_server for WSGI compatibility
+    # TODO: Add similar route logic as in run_server for full functionality
     return app
