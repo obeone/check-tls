@@ -6,10 +6,8 @@ on:
       - main
   release:
     types: [published]
+  
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -37,7 +35,6 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
@@ -45,7 +42,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: docker.io
@@ -57,19 +53,17 @@ jobs:
         id: docker_build
         with:
           context: .
+          push: true
           file: ./Dockerfile
-          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'release' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ steps.docker_tags.outputs.tags }}
           platforms: linux/amd64,linux/arm64,linux/i386
 
       - name: Set up cosign
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@v3
 
       - name: Sign the container image with cosign
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           cosign sign --yes ghcr.io/obeone/check-tls@${DIGEST}
           cosign sign --yes docker.io/obeoneorg/check-tls@${DIGEST}
@@ -78,7 +72,6 @@ jobs:
           DIGEST: ${{ steps.docker_build.outputs.digest }}
 
       - name: Update Docker Hub description
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
