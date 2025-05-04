@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "check-tls"
-version = "1.0.1"
+version = "1.0.2"
 description = "A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for any domain."
 authors = [
     { name="Grégoire Compagnon (obeone)", email="obeone@obeone.org" },
