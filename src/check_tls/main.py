@@ -1,6 +1,7 @@
 # CLI entry point and argument parsing
 import argparse
 import logging
+from urllib.parse import urlparse # Added for URL parsing
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
 from check_tls.web_server import run_server
 
@@ -254,7 +255,9 @@ def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(
         description="Analyze TLS certificates for one or more domains.")
-    parser.add_argument('domains', nargs='*', help='Domains to analyze')
+    parser.add_argument('domains', nargs='*', help='Domains to analyze (e.g., google.com or google.com:443)')
+    parser.add_argument('-P', '--connect-port', type=int, default=443,
+                        help='Port to connect to for TLS analysis (default: 443). This is overridden if port is specified in domain string e.g. example.com:1234')
     parser.add_argument('-j', '--json', type=str,
                         help='Output JSON report to FILE (use "-" for stdout)', default=None)
     parser.add_argument('-c', '--csv', type=str,
@@ -289,25 +292,91 @@ def main():
     else:
         # Perform TLS analysis for specified domains
         if args.domains:
-            results = [
-                analyze_certificates(
-                    domain,
-                    mode=args.mode,
-                    insecure=args.insecure,
-                    skip_transparency=args.no_transparency,
-                    perform_crl_check=not args.no_crl_check
-                ) for domain in args.domains
-            ]
+            # Process domains to extract host and port, using --connect-port as default if not specified in domain string
+            parsed_domains_for_analysis = []
+            for domain_entry in args.domains:
+                # Ensure a scheme is present for urlparse to work correctly, default to https if missing
+                # This helps parse "example.com:443" as well as "https://example.com:443"
+                # However, urlparse might misinterpret "example.com:443" if no scheme is forced.
+                # A simple check: if "://" is not in the entry, prepend "https://"
+                # This is a basic heuristic. More robust parsing might be needed for all edge cases.
+                
+                processed_entry = domain_entry
+                if "://" not in processed_entry:
+                    # If it looks like "host:port" or just "host", prepend scheme
+                    # This handles cases like "google.com" or "google.com:443"
+                    # For "google.com:notaport", urlparse might still struggle.
+                    # We assume if a colon is present and it's not part of a scheme, it's for a port.
+                    # A more direct approach for host:port without scheme:
+                    parts_check = processed_entry.split(':', 1)
+                    if len(parts_check) > 1 and parts_check[1].isdigit():
+                         # Likely "host:port" format, urlparse might treat "host" as scheme
+                         # Prepending https:// ensures hostname and port are correctly parsed.
+                         processed_entry = f"https://{processed_entry}"
+                    elif ':' not in processed_entry: # Just a domain name
+                        processed_entry = f"https://{processed_entry}"
+                    # If it's like "some-scheme:actualdata" and not http/https, urlparse will handle it.
+
+                parsed_url = urlparse(processed_entry)
+                
+                host = parsed_url.hostname
+                port = parsed_url.port
+
+                if not host: # Handle cases where parsing might fail to extract a hostname
+                    logging.warning(f"Could not extract hostname from '{domain_entry}'. Using the entry as is for host and default port.")
+                    # Fallback to old behavior or a modified version if urlparse fails badly
+                    parts = domain_entry.split(':', 1)
+                    host = parts[0] # This might be the scheme if urlparse failed, e.g. "mailto:test"
+                    port = args.connect_port # Default port
+                    if len(parts) > 1:
+                        try:
+                            port_val = int(parts[1])
+                            if 1 <= port_val <= 65535:
+                                port = port_val
+                        except ValueError:
+                            # Port part was not a valid number, stick to default
+                            pass # port remains args.connect_port
+                
+                if port is None: # If port was not in the URL
+                    port = args.connect_port # Use default CLI port
+
+                # Final validation for port, even if extracted by urlparse or set by default
+                if not (1 <= port <= 65535):
+                    logging.warning(f"Port {port} for host {host} (from '{domain_entry}') is invalid. Using default/CLI port {args.connect_port}.")
+                    port = args.connect_port
+                    
+                parsed_domains_for_analysis.append({'host': host, 'port': port, 'original_entry': domain_entry})
+
+            results = []
+            for item in parsed_domains_for_analysis:
+                results.append(
+                    analyze_certificates(
+                        domain=item['host'],
+                        port=item['port'],
+                        mode=args.mode,
+                        insecure=args.insecure,
+                        skip_transparency=args.no_transparency,
+                        perform_crl_check=not args.no_crl_check
+                    )
+                )
+
             # Output results in the requested format
+            # run_analysis now expects a list of "domain:port" strings or just "domain" strings
+            # It will use its own default port (443) if not specified in the string.
+            # We pass the original args.domains list which contains the user's input strings.
             if args.json or args.csv:
                 run_analysis(
-                    domains=args.domains,
+                    domains_input=args.domains, # Pass the original list of domain strings
                     output_json=args.json,
                     output_csv=args.csv,
                     mode=args.mode,
                     insecure=args.insecure,
                     skip_transparency=args.no_transparency,
                     perform_crl_check=not args.no_crl_check
+                    # The run_analysis function will handle parsing port from domain strings
+                    # or use its default of 443 if not present.
+                    # The --connect-port arg is primarily for the direct analyze_certificates call above
+                    # for the human_summary, or if run_analysis was to be refactored to take a default port.
                 )
             else:
                 print_human_summary(results)

@@ -1,6 +1,7 @@
 # Flask server and web interface
 import logging
 import argparse
+from urllib.parse import urlparse # Added for URL parsing
 from flask import Flask, render_template_string, request, jsonify, current_app
 from check_tls.tls_checker import analyze_certificates
 from markupsafe import Markup
@@ -182,7 +183,11 @@ HTML_TEMPLATE = """
 <form method='post' class='mb-5 p-4 border rounded shadow-sm' style='background-color: var(--card-bg);'>
 <div class='mb-3'>
 <label for='domains' class='form-label'>Domains to analyze (space or comma separated):</label>
-<input type='text' class='form-control form-control-lg' id='domains' name='domains' placeholder='e.g. example.com test.org google.com' required>
+<input type='text' class='form-control form-control-lg' id='domains' name='domains' placeholder='e.g. example.com test.org:8443 google.com' required>
+</div>
+<div class='mb-3'>
+    <label for='connect_port' class='form-label'>Default Connect Port {{ get_tooltip('Port to connect to for TLS analysis if not specified in the domain string (e.g., example.com:PORT). Default: 443') }}</label>
+    <input type='number' class='form-control' id='connect_port' name='connect_port' value='{{ connect_port_value | default(443) }}' min='1' max='65535'>
 </div>
 <div class='row'>
     <div class='col-md-4 mb-3'>
@@ -425,27 +430,62 @@ def run_server(args):
         insecure_checked = script_args.insecure
         no_transparency_checked = script_args.no_transparency
         no_crl_check_checked = script_args.no_crl_check
+        # Use script_args.connect_port if available (though not directly set by current CLI for server mode)
+        # or default to 443 for the form's initial display.
+        connect_port_value = getattr(script_args, 'connect_port', 443)
 
         if request.method == 'POST':
             # Parse and clean domain input from form
             raw_domains = request.form.get('domains', '')
-            domains = [d.strip() for d in raw_domains.replace(',', ' ').split() if d.strip()]
+            domains_input = [d.strip() for d in raw_domains.replace(',', ' ').split() if d.strip()]
 
             # Parse flags from form checkboxes
             insecure_flag = request.form.get('insecure') == 'true'
             no_transparency_flag = request.form.get('no_transparency') == 'true'
             no_crl_check_flag = request.form.get('no_crl_check') == 'true'
+            
+            try:
+                connect_port_from_form = int(request.form.get('connect_port', 443))
+                if not (1 <= connect_port_from_form <= 65535):
+                    connect_port_from_form = 443
+            except ValueError:
+                connect_port_from_form = 443
+            connect_port_value = connect_port_from_form # For re-rendering the form
 
-            # Analyze certificates for each domain with specified options
-            results = [
-                analyze_certificates(
-                    domain,
-                    insecure=insecure_flag,
-                    skip_transparency=no_transparency_flag,
-                    perform_crl_check=not no_crl_check_flag
+            results = []
+            for domain_entry in domains_input:
+                processed_entry = domain_entry
+                if "://" not in processed_entry:
+                    parts_check = processed_entry.split(':', 1)
+                    if len(parts_check) > 1 and parts_check[1].isdigit():
+                         processed_entry = f"https://{processed_entry}"
+                    elif ':' not in processed_entry:
+                        processed_entry = f"https://{processed_entry}"
+
+                parsed_url = urlparse(processed_entry)
+                host = parsed_url.hostname
+                port_in_domain = parsed_url.port
+
+                if not host:
+                    current_app.logger.warning(f"Could not extract hostname from '{domain_entry}'. Using entry as host.")
+                    host = domain_entry.split(':')[0] # Basic fallback
+                    port_to_use = connect_port_from_form
+                else:
+                    port_to_use = port_in_domain if port_in_domain else connect_port_from_form
+                
+                if not (1 <= port_to_use <= 65535):
+                    current_app.logger.warning(f"Port {port_to_use} for host {host} (from '{domain_entry}') is invalid. Using default {connect_port_from_form}.")
+                    port_to_use = connect_port_from_form
+
+                results.append(
+                    analyze_certificates(
+                        domain=host,
+                        port=port_to_use,
+                        insecure=insecure_flag,
+                        skip_transparency=no_transparency_flag,
+                        perform_crl_check=not no_crl_check_flag
+                    )
                 )
-                for domain in domains
-            ]
 
         # Check if client expects JSON response
         accept_header = request.headers.get('Accept', '')
@@ -458,9 +498,10 @@ def run_server(args):
             return render_template_string(
                 HTML_TEMPLATE,
                 results=results,
-                insecure_checked=insecure_checked,
-                no_transparency_checked=no_transparency_checked,
-                no_crl_check_checked=no_crl_check_checked,
+                insecure_checked=insecure_checked, # Or insecure_flag if POST
+                no_transparency_checked=no_transparency_checked, # Or no_transparency_flag if POST
+                no_crl_check_checked=no_crl_check_checked, # Or no_crl_check_flag if POST
+                connect_port_value=connect_port_value,
                 get_tooltip=get_tooltip
             )
 
@@ -473,6 +514,7 @@ def run_server(args):
         - insecure (bool)
         - no_transparency (bool)
         - no_crl_check (bool)
+        - connect_port (int, optional, default: 443)
 
         Returns:
             JSON response with analysis results or error message.
@@ -481,25 +523,56 @@ def run_server(args):
             return jsonify({'error': 'Request must be JSON'}), 400
 
         data = request.get_json()
-        domains = data.get('domains')
+        domains_input = data.get('domains')
 
-        if not domains or not isinstance(domains, list):
+        if not domains_input or not isinstance(domains_input, list):
             return jsonify({'error': 'JSON body must contain a list of domains under "domains"'}), 400
 
         insecure_flag = bool(data.get('insecure', False))
         no_transparency_flag = bool(data.get('no_transparency', False))
         no_crl_check_flag = bool(data.get('no_crl_check', False))
+        
+        try:
+            connect_port_from_json = int(data.get('connect_port', 443))
+            if not (1 <= connect_port_from_json <= 65535):
+                connect_port_from_json = 443
+        except ValueError:
+            connect_port_from_json = 443
 
-        results = [
-            analyze_certificates(
-                domain,
-                insecure=insecure_flag,
-                skip_transparency=no_transparency_flag,
-                perform_crl_check=not no_crl_check_flag
+        results = []
+        for domain_entry in domains_input:
+            processed_entry = domain_entry
+            if "://" not in processed_entry:
+                parts_check = processed_entry.split(':', 1)
+                if len(parts_check) > 1 and parts_check[1].isdigit():
+                     processed_entry = f"https://{processed_entry}"
+                elif ':' not in processed_entry:
+                    processed_entry = f"https://{processed_entry}"
+            
+            parsed_url = urlparse(processed_entry)
+            host = parsed_url.hostname
+            port_in_domain = parsed_url.port
+
+            if not host:
+                current_app.logger.warning(f"API: Could not extract hostname from '{domain_entry}'. Using entry as host.")
+                host = domain_entry.split(':')[0] # Basic fallback
+                port_to_use = connect_port_from_json
+            else:
+                port_to_use = port_in_domain if port_in_domain else connect_port_from_json
+
+            if not (1 <= port_to_use <= 65535):
+                current_app.logger.warning(f"API: Port {port_to_use} for host {host} (from '{domain_entry}') is invalid. Using default {connect_port_from_json}.")
+                port_to_use = connect_port_from_json
+            
+            results.append(
+                analyze_certificates(
+                    domain=host,
+                    port=port_to_use,
+                    insecure=insecure_flag,
+                    skip_transparency=no_transparency_flag,
+                    perform_crl_check=not no_crl_check_flag
+                )
             )
-            for domain in domains
-        ]
-
         return jsonify(results)
 
     logging.info(f"Starting Flask server on http://0.0.0.0:{args.port}")

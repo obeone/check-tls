@@ -12,26 +12,28 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 ## 📚 Table of Contents
 
-- [🚀 Features](#-features)
-- [🛠️ Installation](#️-installation)
-  - [Recommended: With pipx](#recommended-with-pipx)
-  - [Alternative: With pip](#alternative-with-pip)
-  - [With Docker](#with-docker)
-- [⚙️ Usage](#️-usage)
-  - [Example (pip)](#example-pip)
-  - [Command Line](#command-line)
-- [🖥️ REST API Usage](#️-rest-api-usage)
-  - [Analyze Domains (POST /api/analyze)](#analyze-domains-post-apianalyze)
-    - [Example curl Request](#example-curl-request)
-    - [Example JSON Response](#example-json-response)
-- [🌐 Web Interface](#-web-interface)
-- [🗂️ Project Structure](#️-project-structure)
-- [❓ FAQ](#-faq)
-- [🛠️ Troubleshooting](#️-troubleshooting)
-- [👩‍💻 Development](#-development)
-- [🤝 Contributing](#-contributing)
-- [📜 License](#-license)
-- [📦 Release & Publish](#-release--publish)
+- [✨ Check TLS Certificate ✨](#-check-tls-certificate-)
+  - [📚 Table of Contents](#-table-of-contents)
+  - [🚀 Features](#-features)
+  - [🛠️ Installation](#️-installation)
+    - [Recommended: With pipx](#recommended-with-pipx)
+    - [Alternative: With pip](#alternative-with-pip)
+    - [With Docker](#with-docker)
+  - [⚙️ Usage](#️-usage)
+    - [Example (pip)](#example-pip)
+    - [Command Line](#command-line)
+  - [🖥️ REST API Usage](#️-rest-api-usage)
+    - [Analyze Domains (POST /api/analyze)](#analyze-domains-post-apianalyze)
+      - [Example curl Request](#example-curl-request)
+      - [Example JSON Response](#example-json-response)
+  - [🌐 Web Interface](#-web-interface)
+  - [🗂️ Project Structure](#️-project-structure)
+  - [❓ FAQ](#-faq)
+  - [🛠️ Troubleshooting](#️-troubleshooting)
+  - [👩‍💻 Development](#-development)
+  - [🤝 Contributing](#-contributing)
+  - [📜 License](#-license)
+  - [📦 Release \& Publish](#-release--publish)
 
 ---
 
@@ -98,12 +100,14 @@ Analyze a domain:
 
 ```sh
 check-tls example.com
+# Or with a full URL (port in URL overrides --connect-port)
+check-tls https://example.net:9000
 ```
 
 Analyze multiple domains, output JSON:
 
 ```sh
-check-tls google.com github.com -j report.json
+check-tls google.com https://github.com:443 -j report.json
 ```
 
 Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
@@ -112,9 +116,13 @@ Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 
 - `-j, --json FILE`   Output JSON (use "-" for stdout)
 - `-c, --csv FILE`    Output CSV (use "-" for stdout)
+- `-P CONNECT_PORT, --connect-port CONNECT_PORT`
+                        Port to connect to for TLS analysis (default: 443).
+                        This is overridden if port is specified in domain/URL string
+                        e.g. example.com:1234 or https://example.com:1234
 - `-k, --insecure`    Allow self-signed certs
 - `-s, --server`      Launch web UI
-- `-p, --port`        Web server port
+- `-p, --port`        Web server port (for the UI, not for TLS connection)
 - `--no-transparency` Skip transparency check
 - `--no-crl-check`    Skip CRL check
 
