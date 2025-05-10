@@ -110,20 +110,33 @@ def check_crl(cert: x509.Certificate) -> Dict[str, Any]:
 
     # Collect HTTP(S) URIs from the CRL Distribution Points
     http_cdp_uris = []
-    # cdp_ext.value.distribution_points is a list of DistributionPoint objects
-    for point in getattr(cdp_ext.value, "distribution_points", []):
-        if point.full_name:
-            for general_name in point.full_name:
-                if isinstance(general_name, x509.UniformResourceIdentifier):
-                    uri = general_name.value
-                    parsed_uri = urllib.parse.urlparse(uri)
-                    if parsed_uri.scheme in ["http", "https"]:
-                        http_cdp_uris.append(uri)
+    # cdp_value should be an instance of x509.CRLDistributionPoints.
+    # x509.CRLDistributionPoints is a Sequence[DistributionPoint], so it's directly iterable.
+    if isinstance(cdp_value, x509.CRLDistributionPoints):
+        for point in cdp_value: # Iterate directly over the CRLDistributionPoints sequence
+            if point.full_name:
+                for general_name in point.full_name:
+                    if isinstance(general_name, x509.UniformResourceIdentifier):
+                        uri = general_name.value
+                        parsed_uri = urllib.parse.urlparse(uri)
+                        if parsed_uri.scheme in ["http", "https"]:
+                            http_cdp_uris.append(uri)
+                        # else: # Optional: log non-HTTP URIs if needed for debugging in the future
+                            # logger.debug(f"Found non-HTTP(S) CDP URI: {uri} with scheme: {parsed_uri.scheme} for cert S/N {hex(cert.serial_number)}")
+    else:
+        logger.warning(
+            f"CRLDistributionPoints extension value has unexpected type for cert S/N {hex(cert.serial_number)}: {type(cdp_value)}. Expected x509.CRLDistributionPoints."
+        )
+        # If cdp_value is not of the expected type, http_cdp_uris will remain empty,
+        # and the 'no_http_cdp' status will be set below.
 
     if not http_cdp_uris:
         logger.warning(f"No HTTP(S) CRL Distribution Points found for cert S/N {hex(cert.serial_number)}")
         result["status"] = "no_http_cdp"
-        result["reason"] = "No HTTP(S) URIs found in CRL Distribution Points."
+        if not isinstance(cdp_value, x509.CRLDistributionPoints):
+            result["reason"] = "CRL Distribution Points extension has an unexpected format or type."
+        else:
+            result["reason"] = "No HTTP(S) URIs found in CRL Distribution Points."
         return result
 
     logger.info(
