@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 # Configure the package metadata and options
 setup(
     name='check-tls',  # Name of the package
-    version='1.0.2',  # Initial release version
+    version='1.0.3',  # Initial release version
     author='Grégoire Compagnon (obeone)',  # Author information
     url='https://github.com/obeone/check-tls',  # Project URL
     license='MIT',  # License type
