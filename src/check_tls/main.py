@@ -2,6 +2,7 @@
 import argparse
 import logging
 from urllib.parse import urlparse # Added for URL parsing
+from check_tls import __version__ # Import the version
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
 from check_tls.web_server import run_server
 
@@ -255,6 +256,14 @@ def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(
         description="Analyze TLS certificates for one or more domains.")
+    # Add version argument
+    parser.add_argument(
+        '--version',
+        '-V',  # Add alias for version
+        action='version',
+        version=f'%(prog)s {__version__}',  # Use the imported version
+        help="Show program's version number and exit"
+    )
     parser.add_argument('domains', nargs='*', help='Domains to analyze (e.g., google.com or google.com:443)')
     parser.add_argument('-P', '--connect-port', type=int, default=443,
                         help='Port to connect to for TLS analysis (default: 443). This is overridden if port is specified in domain string e.g. example.com:1234')
@@ -282,6 +291,7 @@ def main():
     logging.basicConfig(level=get_log_level(args.loglevel))
 
     # Check if no domains or server mode is specified
+    # If --version is used, argparse handles it and exits, so this check is fine.
     if not args.domains and not args.server:
         parser.print_help()
         return

@@ -3,8 +3,12 @@
 # --- Build Stage ---
 FROM python:3.13-alpine AS builder
 
-# Install build dependencies + Rust
-RUN apk add --no-cache \
+ARG APP_VERSION=0.0.0
+
+# Install build dependencies + Rust using APK cache
+# This is more efficient than --no-cache for repeated builds
+RUN --mount=type=cache,target=/var/cache/apk \
+    apk add \
         gcc \
         musl-dev \
         libffi-dev \
@@ -16,36 +20,44 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy only necessary files
-COPY --link setup.py ./
+# Copy only necessary files for dependency installation
+COPY --link pyproject.toml ./
+
+# Create a virtual environment and activate it for subsequent commands
+# Install dependencies using pip cache
+RUN  --mount=type=cache,target=/root/.cache/pip \
+    python -m venv /opt/venv && \
+    . /opt/venv/bin/activate && \
+    pip install --upgrade pip
+
+
+# Copy the rest of the source code after dependency installation
 COPY --link src/ ./src/
 
-# Create virtual environment and install dependencies
-RUN python -m venv /opt/venv
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-    . /opt/venv/bin/activate && \
-    pip install --upgrade pip && \
-    pip install .
+# Install the project using pip cache, including versioning from git tags
+RUN  --mount=type=cache,target=/root/.cache/pip \
+    SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION} pip wheel --wheel-dir=/app/dist/ .
 
 # --- Final Stage ---
-FROM python:3.13-alpine
+FROM python:3.13-alpine AS final
 
-# Set environment variables
-ENV VIRTUAL_ENV=/opt/venv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# Declare global ARGs so they are available throughout the FROM scope
+ARG APP_VERSION
 
-# Create a non-root user
-RUN addgroup -S app && adduser -S appuser -G app
+# Python specific ENV vars for best practices
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Create a non-root group and user for the application
+# Using static IDs is a good practice for reproducibility
+RUN addgroup -S -g 1001 appgroup && \
+    adduser -S -u 1001 -G appgroup appuser
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
-
-# Copy app source if needed
-COPY --link src/ ./src/
-COPY --link setup.py ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=bind,from=builder,source=/app/dist,target=/app/dist \
+    pip install /app/dist/*.whl
 
 USER appuser
 
@@ -53,12 +65,12 @@ EXPOSE 8000
 
 ENTRYPOINT ["check-tls"]
 
-# Metadata Labels
+# Metadata Labels - ensure APP_VERSION is correctly interpolated
 LABEL org.opencontainers.image.title="Check TLS Bundle" \
-        org.opencontainers.image.description="A versatile Python tool to analyze TLS/SSL certificates for one or multiple domains, featuring profile detection, chain validation, and multiple output formats. Includes a handy web interface mode!" \
-        org.opencontainers.image.url="https://github.com/obeone/check-tls" \
-        org.opencontainers.image.source="https://github.com/obeone/check-tls" \
-        org.opencontainers.image.version="0.1.0" \
-        org.opencontainers.image.vendor="Grégoire Compagnon - obeone" \
-        org.opencontainers.image.licenses="MIT" \
-        org.opencontainers.image.authors="Grégoire Compagnon - obeone <opensource@obeone.org>"
+      org.opencontainers.image.description="A versatile Python tool to analyze TLS/SSL certificates for one or multiple domains, featuring profile detection, chain validation, and multiple output formats. Includes a handy web interface mode!" \
+      org.opencontainers.image.url="https://github.com/obeone/check-tls" \
+      org.opencontainers.image.source="https://github.com/obeone/check-tls" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.vendor="Grégoire Compagnon - obeone" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.authors="Grégoire Compagnon - obeone <opensource@obeone.org>"
