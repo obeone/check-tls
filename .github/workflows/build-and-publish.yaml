@@ -27,13 +27,20 @@ jobs:
         id: docker_tags
         run: |
           TAGS="ghcr.io/obeone/check-tls:latest\ndocker.io/obeoneorg/check-tls:latest"
-          if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ github.event.release.tag_name }}" ]; then
+          if [ "${{ github.event_name }}" = "release" ] && [ -n " ]; then
             TAGS="$TAGS\nghcr.io/obeone/check-tls:${{ github.event.release.tag_name }}\ndocker.io/obeoneorg/check-tls:${{ github.event.release.tag_name }}"
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
           echo -e "$TAGS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+      - name: Set Docker build args
+        id: docker_args
+        run: |
+          if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "APP_VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+          
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -58,6 +65,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ steps.docker_tags.outputs.tags }}
+          build-args: ${{ steps.docker_args.outputs }}
           platforms: linux/amd64,linux/arm64,linux/i386
 
       - name: Set up cosign
