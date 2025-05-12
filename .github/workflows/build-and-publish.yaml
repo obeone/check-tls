@@ -27,7 +27,7 @@ jobs:
         id: docker_tags
         run: |
           TAGS="ghcr.io/obeone/check-tls:latest\ndocker.io/obeoneorg/check-tls:latest"
-          if [ "${{ github.event_name }}" = "release" ] && [ -n " ]; then
+          if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ github.event.release.tag_name }}" ]; then
             TAGS="$TAGS\nghcr.io/obeone/check-tls:${{ github.event.release.tag_name }}\ndocker.io/obeoneorg/check-tls:${{ github.event.release.tag_name }}"
           fi
           echo "tags<<EOF" >> $GITHUB_OUTPUT
