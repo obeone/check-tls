@@ -41,7 +41,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
           
           echo "build_args<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$APP_VERSION" >> $GITHUB_OUTPUT
+          echo -e "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           
