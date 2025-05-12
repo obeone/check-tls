@@ -3,3 +3,4 @@ __pycache__
 build
 check_tls.egg-info
 .history
+.DS_Store
