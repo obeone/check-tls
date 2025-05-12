@@ -1,11 +1,13 @@
-# CLI entry point and argument parsing
+# src/check_tls/main.py
+
 import argparse
 import logging
-from urllib.parse import urlparse # Added for URL parsing
-from check_tls import __version__ # Import the version
+import sys
+import shtab  # Import shtab
+from urllib.parse import urlparse
+from check_tls import __version__
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
 from check_tls.web_server import run_server
-
 
 def print_human_summary(results):
     """
@@ -127,7 +129,6 @@ def print_human_summary(results):
                 print(f"  Checked URI : {crl_uri}")
 
         # Certificate Chain Details
-        # This section prints each certificate in the chain with improved color, formatting, and readability.
         cert_count_color = '\033[92m' if certs_list else '\033[91m'
         print(
             f"\n\033[1mCertificate Chain Details:\033[0m ({cert_count_color}{len(certs_list)} found\033[0m)")
@@ -137,21 +138,18 @@ def print_human_summary(results):
         for cert in certs_list:
             chain_index = cert.get('chain_index', '?')
 
-            # Determine emoji based on certificate position in chain
             if chain_index == 0:
                 chain_emoji = "🔒"  # Leaf certificate
             elif isinstance(chain_index, int) and chain_index == len(certs_list) - 1:
-                chain_emoji = "🏁"  # Root certificate
+                chain_emoji = "🏁"  # Root certificate (assuming last is root)
             else:
                 chain_emoji = "🔗"  # Intermediate certificate
 
-            # Print error if present in certificate
             if 'error' in cert:
                 print(
                     f"  [{chain_emoji} Chain Index {chain_index}] \033[91m\033[1m❌ Error: {cert['error']}\033[0m")
                 continue
 
-            # Print certificate details
             print(
                 f"  [{chain_emoji} Chain Index {chain_index}] \033[1mSubject:\033[0m \033[96m{cert.get('subject', 'N/A')}\033[0m")
             print(
@@ -159,7 +157,6 @@ def print_human_summary(results):
             print(
                 f"      \033[1mSerial:\033[0m {cert.get('serial_number', 'N/A')} | \033[1mProfile:\033[0m {cert.get('profile', 'N/A')}")
 
-            # Format and print validity period with color and emoji
             days_left = cert.get('days_remaining', None)
             not_before = cert.get('not_before', 'N/A')
             not_after = cert.get('not_after', 'N/A')
@@ -181,19 +178,15 @@ def print_human_summary(results):
                 expiry_str = f"{not_before} -> {not_after} | \033[93mN/A days left\033[0m"
             print(f"      \033[1mValid:\033[0m {expiry_str}")
 
-            # Print public key algorithm and size
+            pub_key_algo = cert.get('public_key_algorithm', 'N/A')
+            pub_key_size = cert.get('public_key_size_bits', 'N/A')
             print(
-                f"      \033[1mPublic Key:\033[0m {cert.get('public_key_algorithm', 'N/A')} (\033[1m{cert.get('public_key_size_bits', 'N/A')} bits\033[0m)")
-
-            # Print signature algorithm
+                f"      \033[1mPublic Key:\033[0m {pub_key_algo} (\033[1m{pub_key_size} bits\033[0m)")
             print(
                 f"      \033[1mSignature:\033[0m {cert.get('signature_algorithm', 'N/A')}")
-
-            # Print SHA256 fingerprint
             print(
-                f"      \033[1mSHA256 Fingerprint:\033[0m {cert.get('sha256_fingerprint', 'N/A')}")
+                f"      \033[1mSHA256 FP:\033[0m {cert.get('sha256_fingerprint', 'N/A')}")
 
-            # Print Subject Alternative Names (SANs)
             sans = cert.get('san', [])
             if sans:
                 max_sans_display = 5
@@ -204,8 +197,7 @@ def print_human_summary(results):
             else:
                 print(f"      \033[1mSANs:\033[0m None")
 
-            # Extra newline for readability
-            print("")
+            print("")  # Extra newline for readability between certs
 
         # Certificate Transparency Section
         trans = result.get('transparency', {})
@@ -217,148 +209,176 @@ def print_human_summary(results):
             links = trans.get('crtsh_report_links', {})
             total = trans.get('crtsh_records_found', 0)
             if trans.get('errors'):
-                print("  \033[91mErrors found in transparency logs:\033[0m")
+                print("  \033[91mErrors found during crt.sh query:\033[0m")
                 for d, err in trans['errors'].items():
                     link = links.get(d)
-                    print(f"    ❌ {d}: Error: {err}" +
-                          (f" [crt.sh]({link})" if link else ""))
-            else:
-                print("  \033[92mTransparency log records:\033[0m")
+                    link_str = f" (See: {link})" if link else ""
+                    print(f"    ❌ {d}: Error: {err}{link_str}")
+            if details:
+                print("  \033[92mTransparency log records (crt.sh):\033[0m")
                 for d, records in details.items():
                     link = links.get(d)
-                    count = len(
-                        records) if records is not None else 'Error'
-                    print(f"    ✅ {d}: {count} record(s)" +
-                          (f" [crt.sh]({link})" if link else ""))
-            print(f"\n  \033[1mTotal records found:\033[0m {total}")
+                    link_str = f" (See: {link})" if link else ""
+                    if records is not None:
+                        count = len(records)
+                        print(f"    ✅ {d}: {count} record(s){link_str}")
+                    # Only show error here if it wasn't shown above
+                    elif d not in trans.get('errors', {}):
+                        print(
+                            f"    ❓ {d}: No records found or error occurred{link_str}")
 
-    # Print footer separator and end message
+            print(
+                f"\n  \033[1mTotal records found across domains:\033[0m {total}")
+
     print(separator)
     print("\033[90m--- End of analysis ---\033[0m\n")
 
 
-def main():
-    """
-    Main function to parse command-line arguments and execute TLS analysis or run the web server.
-
-    Parameters:
-        None
+def create_parser():
+    '''
+    Create and configure the argument parser for check-tls.
 
     Returns:
-        None
-
-    This function handles the following:
-    - Parsing command-line arguments for domains to analyze, output formats, log level, and other options.
-    - Setting up logging based on the provided log level.
-    - Running the web server if the `--server` flag is set.
-    - Performing TLS analysis for specified domains and outputting results in the requested format.
-    """
-    # Set up argument parser
+        argparse.ArgumentParser: The configured argument parser.
+    '''
     parser = argparse.ArgumentParser(
-        description="Analyze TLS certificates for one or more domains.")
-    # Add version argument
+        description="Analyze TLS certificates for one or more domains.",
+        epilog="Example: check-tls google.com example.org:8443 -j report.json"
+    )
     parser.add_argument(
         '--version',
-        '-V',  # Add alias for version
+        '-V',
         action='version',
-        version=f'%(prog)s {__version__}',  # Use the imported version
+        version=f'%(prog)s {__version__}',
         help="Show program's version number and exit"
     )
-    parser.add_argument('domains', nargs='*', help='Domains to analyze (e.g., google.com or google.com:443)')
+    parser.add_argument('domains', nargs='*',
+                        help='Domains to analyze (e.g., google.com or google.com:443)')
     parser.add_argument('-P', '--connect-port', type=int, default=443,
                         help='Port to connect to for TLS analysis (default: 443). This is overridden if port is specified in domain string e.g. example.com:1234')
-    parser.add_argument('-j', '--json', type=str,
-                        help='Output JSON report to FILE (use "-" for stdout)', default=None)
-    parser.add_argument('-c', '--csv', type=str,
-                        help='Output CSV report to FILE (use "-" for stdout)', default=None)
-    parser.add_argument('-m', '--mode', type=str, choices=[
-                        'simple', 'full'], default='full', help="Choose mode: 'simple' or 'full' (default: full)")
-    parser.add_argument('-l', '--loglevel', type=str,
-                        default='WARNING', help='Set log level (default: WARN)')
+    parser.add_argument('-j', '--json', type=str, metavar='FILE',
+                        help='Output JSON report to FILE (use \"-\" for stdout)', default=None)
+    parser.add_argument('-c', '--csv', type=str, metavar='FILE',
+                        help='Output CSV report to FILE (use \"-\" for stdout)', default=None)
+    parser.add_argument('-m', '--mode', type=str, choices=['simple', 'full'], default='full',
+                        help="Analysis mode: 'simple' (leaf cert only) or 'full' (fetch intermediates, default: full)")
+    parser.add_argument('-l', '--loglevel', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], default='WARNING',
+                        help='Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)')
     parser.add_argument('-k', '--insecure', action='store_true',
-                        help='Allow fetching certificates without validation (self-signed)')
+                        help='Allow fetching certificates without validation (e.g., for self-signed certs)')
     parser.add_argument('-s', '--server', action='store_true',
                         help='Run as HTTP server with web interface')
     parser.add_argument('-p', '--port', type=int, default=8000,
-                        help='Specify server port (default: 8000)')
+                        help='Specify web server port (default: 8000)')
     parser.add_argument('--no-transparency', action='store_true',
                         help='Skip crt.sh certificate transparency check')
     parser.add_argument('--no-crl-check', action='store_true',
-                        help='Disable CRL check for the leaf certificate (experimental)')
+                        help='Disable CRL check for the leaf certificate')
+
+    # Add shtab completion argument using the parser program name
+    prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
+    shtab.add_argument_to(parser, ['--print-completion'], preamble={
+        "bash": f"""
+# Load this into your shell environment by adding
+# eval "$({prog_name} --print-completion bash)"
+# to your .bashrc or .bash_profile
+        """,
+        "zsh": f"""
+# Load this into your shell environment by adding
+# eval "$({prog_name} --print-completion zsh)"
+# to your .zshrc
+        """,
+        "fish": f"""
+# Save this script to ~/.config/fish/completions/{prog_name}.fish
+# Or source it directly:
+# {prog_name} --print-completion fish | source
+        """
+    })
+    return parser
+
+
+def main():
+    """
+    Main function to parse command-line arguments and execute TLS analysis,
+    run the web server, or print shell completion scripts.
+    """
+    parser = create_parser()
+    # shtab handles --print-completion here and exits if it's present
     args = parser.parse_args()
 
-    # Configure logging
-    logging.basicConfig(level=get_log_level(args.loglevel))
+    # Configure logging only if we are not printing completion
+    logging.basicConfig(
+        level=get_log_level(args.loglevel),
+        # Added logger name
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+    )
+    # Use a specific logger for this module
+    logger = logging.getLogger(__name__)
 
-    # Check if no domains or server mode is specified
-    # If --version is used, argparse handles it and exits, so this check is fine.
+    # Check if action is required (domains analysis or server mode)
+    # This check happens *after* shtab would have exited for completion.
     if not args.domains and not args.server:
         parser.print_help()
-        return
+        sys.exit(0)
 
     # Run the web server if the --server flag is set
     if args.server:
-        run_server(args)
-    else:
-        # Perform TLS analysis for specified domains
         if args.domains:
-            # Process domains to extract host and port, using --connect-port as default if not specified in domain string
-            parsed_domains_for_analysis = []
-            for domain_entry in args.domains:
-                # Ensure a scheme is present for urlparse to work correctly, default to https if missing
-                # This helps parse "example.com:443" as well as "https://example.com:443"
-                # However, urlparse might misinterpret "example.com:443" if no scheme is forced.
-                # A simple check: if "://" is not in the entry, prepend "https://"
-                # This is a basic heuristic. More robust parsing might be needed for all edge cases.
-                
-                processed_entry = domain_entry
-                if "://" not in processed_entry:
-                    # If it looks like "host:port" or just "host", prepend scheme
-                    # This handles cases like "google.com" or "google.com:443"
-                    # For "google.com:notaport", urlparse might still struggle.
-                    # We assume if a colon is present and it's not part of a scheme, it's for a port.
-                    # A more direct approach for host:port without scheme:
-                    parts_check = processed_entry.split(':', 1)
-                    if len(parts_check) > 1 and parts_check[1].isdigit():
-                         # Likely "host:port" format, urlparse might treat "host" as scheme
-                         # Prepending https:// ensures hostname and port are correctly parsed.
-                         processed_entry = f"https://{processed_entry}"
-                    elif ':' not in processed_entry: # Just a domain name
-                        processed_entry = f"https://{processed_entry}"
-                    # If it's like "some-scheme:actualdata" and not http/https, urlparse will handle it.
+            logger.warning(
+                "Domains provided on the command line are ignored when running in server mode.")
+        # Pass all parsed args to the server function
+        run_server(args)
 
-                parsed_url = urlparse(processed_entry)
-                
-                host = parsed_url.hostname
-                port = parsed_url.port
+    # Perform TLS analysis for specified domains
+    elif args.domains:
+        # Process domains to extract host and port
+        parsed_domains_for_analysis = []
+        for domain_entry in args.domains:
+            processed_entry = domain_entry
+            if "://" not in processed_entry:
+                parts_check = processed_entry.split(':', 1)
+                if len(parts_check) > 1 and parts_check[1].isdigit():
+                    processed_entry = f"https://{processed_entry}"
+                elif ':' not in processed_entry:
+                    processed_entry = f"https://{processed_entry}"
 
-                if not host: # Handle cases where parsing might fail to extract a hostname
-                    logging.warning(f"Could not extract hostname from '{domain_entry}'. Using the entry as is for host and default port.")
-                    # Fallback to old behavior or a modified version if urlparse fails badly
-                    parts = domain_entry.split(':', 1)
-                    host = parts[0] # This might be the scheme if urlparse failed, e.g. "mailto:test"
-                    port = args.connect_port # Default port
-                    if len(parts) > 1:
-                        try:
-                            port_val = int(parts[1])
-                            if 1 <= port_val <= 65535:
-                                port = port_val
-                        except ValueError:
-                            # Port part was not a valid number, stick to default
-                            pass # port remains args.connect_port
-                
-                if port is None: # If port was not in the URL
-                    port = args.connect_port # Use default CLI port
+            parsed_url = urlparse(processed_entry)
+            host = parsed_url.hostname
+            port = parsed_url.port
 
-                # Final validation for port, even if extracted by urlparse or set by default
-                if not (1 <= port <= 65535):
-                    logging.warning(f"Port {port} for host {host} (from '{domain_entry}') is invalid. Using default/CLI port {args.connect_port}.")
-                    port = args.connect_port
-                    
-                parsed_domains_for_analysis.append({'host': host, 'port': port, 'original_entry': domain_entry})
+            if not host:
+                logger.warning(
+                    f"Could not extract hostname from '{domain_entry}'. Using entry as host and default port {args.connect_port}.")
+                parts = domain_entry.split(':', 1)
+                host = parts[0]
+                port = args.connect_port
+                if len(parts) > 1:
+                    try:
+                        port_val = int(parts[1])
+                        if 1 <= port_val <= 65535:
+                            port = port_val
+                    except ValueError:
+                        pass  # Use default port
 
+            if port is None:
+                port = args.connect_port
+
+            if not (1 <= port <= 65535):
+                logger.warning(
+                    f"Port {port} for host {host} (from '{domain_entry}') is invalid. Using default/CLI port {args.connect_port}.")
+                port = args.connect_port
+
+            parsed_domains_for_analysis.append(
+                {'host': host, 'port': port, 'original_entry': domain_entry})
+
+        # Perform the analysis directly here if not outputting to file
+        # If outputting to file, run_analysis will handle it
+        if not args.json and not args.csv:
+            logger.info(
+                f"Starting analysis for: {[item['original_entry'] for item in parsed_domains_for_analysis]}")
             results = []
             for item in parsed_domains_for_analysis:
+                logger.debug(f"Analyzing {item['host']}:{item['port']}")
                 results.append(
                     analyze_certificates(
                         domain=item['host'],
@@ -369,29 +389,21 @@ def main():
                         perform_crl_check=not args.no_crl_check
                     )
                 )
-
-            # Output results in the requested format
-            # run_analysis now expects a list of "domain:port" strings or just "domain" strings
-            # It will use its own default port (443) if not specified in the string.
-            # We pass the original args.domains list which contains the user's input strings.
-            if args.json or args.csv:
-                run_analysis(
-                    domains_input=args.domains, # Pass the original list of domain strings
-                    output_json=args.json,
-                    output_csv=args.csv,
-                    mode=args.mode,
-                    insecure=args.insecure,
-                    skip_transparency=args.no_transparency,
-                    perform_crl_check=not args.no_crl_check
-                    # The run_analysis function will handle parsing port from domain strings
-                    # or use its default of 443 if not present.
-                    # The --connect-port arg is primarily for the direct analyze_certificates call above
-                    # for the human_summary, or if run_analysis was to be refactored to take a default port.
-                )
-            else:
-                print_human_summary(results)
+            # Print human-readable output directly
+            print_human_summary(results)
         else:
-            parser.print_help()
+            # Call run_analysis which handles JSON/CSV output and runs analysis internally
+            logger.info(
+                f"Starting analysis for file output ({'JSON' if args.json else ''}{' and ' if args.json and args.csv else ''}{'CSV' if args.csv else ''}) for: {args.domains}")
+            run_analysis(
+                domains_input=args.domains,  # Pass original domain strings
+                output_json=args.json,
+                output_csv=args.csv,
+                mode=args.mode,
+                insecure=args.insecure,
+                skip_transparency=args.no_transparency,
+                perform_crl_check=not args.no_crl_check
+            )
 
 
 if __name__ == "__main__":

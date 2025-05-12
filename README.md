@@ -27,7 +27,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
       - [Example curl Request](#example-curl-request)
       - [Example JSON Response](#example-json-response)
   - [🌐 Web Interface](#-web-interface)
-  - [🗂️ Project Structure](#️-project-structure)
+  - [✨ Shell Completion](#-shell-completion)
   - [❓ FAQ](#-faq)
   - [🛠️ Troubleshooting](#️-troubleshooting)
   - [👩‍💻 Development](#-development)
@@ -181,6 +181,35 @@ curl -X POST http://localhost:8000/api/analyze \
 - Great for demos, teams, and non-CLI users!
 
 ---
+
+## ✨ Shell Completion
+
+`check-tls` supports shell completion for bash, zsh, and fish. This helps you quickly fill in command-line options and arguments by pressing the `<Tab>` key.
+
+To enable completion, you need to add a short script to your shell's configuration file. Use the command below for your specific shell (or create a file in your shell's config directory with the appropriate content, to make it persistent across sessions):
+
+**Bash:**
+
+Add the following line to your `~/.bashrc` or `~/.bash_profile`:
+
+```sh
+eval "$(check-tls --print-completion bash)"
+
+**Zsh:**
+
+Add the following line to your `~/.zshrc`:
+
+```sh
+eval "$(check-tls --print-completion zsh)"
+
+**Fish:**
+
+Add the following line to your `~/.config/fish/config.fish`:
+
+```sh
+check-tls --print-completion fish | source
+
+--
 
 ## 🗂️ Project Structure
 
