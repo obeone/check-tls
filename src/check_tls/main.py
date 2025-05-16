@@ -7,7 +7,7 @@ import shtab  # Import shtab
 from urllib.parse import urlparse
 from check_tls import __version__
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
-from check_tls.web_server import run_server
+from check_tls.web_server import run_server, get_flask_app
 
 def print_human_summary(results):
     """
@@ -359,7 +359,7 @@ def main():
         if args.domains:
             logger.warning(
                 "Domains provided on the command line are ignored when running in server mode.")
-        # Pass all parsed args to the server function
+        app = get_flask_app()
         run_server(args)
 
     # Perform TLS analysis for specified domains
