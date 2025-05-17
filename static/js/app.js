@@ -2,7 +2,7 @@
 
 document.addEventListener('DOMContentLoaded', function() {
   const form = document.getElementById('analyze-form');
-  const progressBar = document.getElementById('progress-bar');
+  const loadingSpinner = document.getElementById('loading-spinner');
   const resultsDiv = document.getElementById('results');
   const summaryTableWrapper = document.getElementById('summary-table-wrapper');
   const summaryTableBody = document.querySelector('#summary-table tbody');
@@ -161,8 +161,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Handle form submit
   form.addEventListener('submit', function(event) {
     event.preventDefault();
-    progressBar.style.display = 'block';
-    progressBar.querySelector('.progress-bar').style.width = '20%';
+    loadingSpinner.style.display = 'block';
 
     const formData = new FormData(form);
     const domainsString = formData.get('domains') || '';
@@ -186,15 +185,13 @@ document.addEventListener('DOMContentLoaded', function() {
       body: JSON.stringify(payload)
     })
     .then(response => {
-      progressBar.querySelector('.progress-bar').style.width = '70%';
       if (!response.ok) {
         return response.text().then(text => { throw new Error(`Server error: ${response.status} ${text || response.statusText}`) });
       }
       return response.json();
     })
     .then(results => {
-      progressBar.style.display = 'none';
-      progressBar.querySelector('.progress-bar').style.width = '0%';
+      loadingSpinner.style.display = 'none';
       resultsDiv.innerHTML = '';
       // Render summary and results
       renderSummary(results);
@@ -205,8 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     })
     .catch(error => {
-      progressBar.style.display = 'none';
-      progressBar.querySelector('.progress-bar').style.width = '0%';
+      loadingSpinner.style.display = 'none';
       summaryTableWrapper.style.display = 'none';
       resultsDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${error.message || error}</div>`;
     });
