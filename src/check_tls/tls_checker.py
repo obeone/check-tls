@@ -376,10 +376,10 @@ def detect_profile(cert: x509.Certificate) -> str:
 
     return profile
 
-def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True) -> dict:
+def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True) -> dict:
     """
     Analyze the certificates of a domain, including leaf and intermediate certificates,
-    perform validation, CRL checks, and certificate transparency checks.
+    perform validation, CRL, OCSP checks, and certificate transparency checks.
 
     Parameters:
         domain (str): The domain to analyze.
@@ -388,10 +388,11 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         insecure (bool): Whether to ignore SSL verification errors when fetching certificates.
         skip_transparency (bool): Whether to skip Certificate Transparency log checks.
         perform_crl_check (bool): Whether to perform Certificate Revocation List (CRL) checks.
+        perform_ocsp_check (bool): Whether to perform Online Certificate Status Protocol (OCSP) checks.
 
     Returns:
         dict: A dictionary containing analysis results, including connection info,
-              validation status, certificate details, transparency info, and CRL check results.
+              validation status, certificate details, transparency info, CRL and OCSP check results.
     """
     logger = logging.getLogger("certcheck")
     result = {
@@ -421,6 +422,11 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         "crl_check": {
             "checked": False,
             "leaf_status": None,
+            "details": None,
+        },
+        "ocsp_check": { # OCSP check results
+            "checked": False,
+            "status": None,
             "details": None,
         },
     }
@@ -539,6 +545,40 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         logger.info(f"Skipping CRL check for {domain} as requested.")
         result["crl_check"]["checked"] = False
 
+    # OCSP Check (Online Certificate Status Protocol)
+    if perform_ocsp_check:
+        logger.info(f"Performing OCSP check for leaf certificate of {domain}...")
+        result["ocsp_check"]["checked"] = True
+        if leaf_cert:
+            try:
+                # Deduce issuer_cert as the next certificate in the chain if available,
+                # otherwise, assume leaf_cert is self-signed or issuer is not directly available for OCSP.
+                # For OCSP, the immediate issuer of the leaf_cert is needed.
+                # If only leaf_cert is present in `certs`, it might be self-signed or the chain is incomplete.
+                # A more robust solution might involve fetching the issuer based on AIA if not provided.
+                issuer_cert = certs[1] if len(certs) > 1 else leaf_cert # Fallback to leaf_cert if no clear issuer in chain
+                
+                # Dynamically import check_ocsp to avoid circular dependencies if ocsp_utils imports from tls_checker
+                from check_tls.utils.ocsp_utils import check_ocsp
+                ocsp_details = check_ocsp(leaf_cert, issuer_cert)
+                result["ocsp_check"]["status"] = ocsp_details.get("status")
+                result["ocsp_check"]["details"] = ocsp_details
+                logger.info(f"OCSP check result for {domain} leaf: {result['ocsp_check']['status']}")
+            except ImportError as e:
+                logger.error(f"Could not import check_ocsp for {domain}. OCSP check skipped. Error : {e}")
+                result["ocsp_check"]["status"] = "error"
+                result["ocsp_check"]["details"] = {"error": "Failed to import OCSP utility."}
+            except Exception as e:
+                logger.error(f"Error during OCSP check for {domain}: {e}", exc_info=True)
+                result["ocsp_check"]["status"] = "error"
+                result["ocsp_check"]["details"] = {"error": str(e)}
+        else:
+            result["ocsp_check"]["status"] = "error"
+            result["ocsp_check"]["details"] = {"error": "Leaf certificate was not available for OCSP check."}
+    else:
+        logger.info(f"Skipping OCSP check for {domain} as requested.")
+        result["ocsp_check"]["checked"] = False
+
     # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
         ct_results = query_crtsh_multi(domain)
@@ -583,7 +623,7 @@ def get_log_level(level_str: str):
     """
     return getattr(logging, level_str.upper(), logging.WARNING)
 
-def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True):
+def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True):
     """
     Run TLS analysis for a list of domains (which can include ports) and output results.
 
@@ -595,13 +635,14 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
         insecure (bool): Allow insecure connections (skip cert validation during fetch).
         skip_transparency (bool): Skip crt.sh transparency checks.
         perform_crl_check (bool): Perform CRL checks.
+        perform_ocsp_check (bool): Perform OCSP checks.
     """
     logger = logging.getLogger("certcheck")
     results = [] # Changed from all_results to results to match original variable name
     overall_start_time = datetime.datetime.now(timezone.utc)
     # Log the input list directly for clarity
     logger.info(f"Starting analysis for {len(domains_input)} domain entry/entries: {', '.join(domains_input)}")
-    logger.info(f"Mode: {mode}, Insecure Fetching: {insecure}, Transparency Check: {not skip_transparency}, CRL Check: {perform_crl_check}")
+    logger.info(f"Mode: {mode}, Insecure Fetching: {insecure}, Transparency Check: {not skip_transparency}, CRL Check: {perform_crl_check}, OCSP Check: {perform_ocsp_check}")
 
     for domain_entry_str in domains_input:
         parts = domain_entry_str.split(':', 1)
@@ -628,7 +669,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 mode=mode,
                 insecure=insecure,
                 skip_transparency=skip_transparency,
-                perform_crl_check=perform_crl_check
+                perform_crl_check=perform_crl_check,
+                perform_ocsp_check=perform_ocsp_check
             )
             results.append(analysis_result)
         except Exception as e:
@@ -645,6 +687,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 "certificates": [],
                 "transparency": {"checked": False, "error": str(e)},
                 "crl_check": {"checked": perform_crl_check, "leaf_status": "error", "details": {"reason": str(e)}},
+                "ocsp_check": {"checked": perform_ocsp_check, "status": "error", "details": {"reason": str(e)}},
             })
         domain_end_time = datetime.datetime.now(timezone.utc)
         logger.info(f"--- Finished analyzing {domain_to_analyze}:{port_to_analyze} in {(domain_end_time - domain_start_time).total_seconds():.2f}s ---")
@@ -667,6 +710,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 'tls_checked', 'tls_error', 'tls_version', 'supports_tls13', 'cipher_suite',
                 'system_trust_store', 'validation_error',
                 'crl_checked', 'crl_leaf_status', 'crl_detail',
+                'ocsp_checked', 'ocsp_status', 'ocsp_detail', # Added OCSP CSV headers
                 'ct_checked', 'ct_total_records', 'ct_errors', 'ct_details',
                 'cert_index', 'cert_error', 'subject', 'issuer', 'common_name', 'serial_number', 'version', 'not_before', 'not_after', 'days_remaining',
                 'sha256_fingerprint', 'signature_algorithm', 'public_key_algorithm', 'public_key_size', 'profile', 'san', 'has_scts', 'is_ca', 'path_length_constraint'
@@ -683,6 +727,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 conn_health = res_item.get('connection_health', {})
                 validation_info = res_item.get('validation', {})
                 crl_info = res_item.get('crl_check', {})
+                ocsp_info = res_item.get('ocsp_check', {}) # Get OCSP info
 
                 if not certs_list:
                     writer.writerow([
@@ -693,6 +738,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                         validation_info.get('system_trust_store'), validation_info.get('error'),
                         crl_info.get('checked'), crl_info.get('leaf_status'),
                         json.dumps(crl_info.get('details')),
+                        ocsp_info.get('checked'), ocsp_info.get('status'), # Added OCSP CSV data
+                        json.dumps(ocsp_info.get('details')), # Added OCSP CSV data
                         ct_checked, ct_total_records, ct_errors, ct_details,
                         # Empty certificate fields
                         "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
@@ -707,6 +754,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                             validation_info.get('system_trust_store'), validation_info.get('error'),
                             crl_info.get('checked'), crl_info.get('leaf_status'),
                             json.dumps(crl_info.get('details')),
+                            ocsp_info.get('checked'), ocsp_info.get('status'), # Added OCSP CSV data
+                            json.dumps(ocsp_info.get('details')), # Added OCSP CSV data
                             ct_checked, ct_total_records, ct_errors, ct_details,
                             cert_item.get("chain_index", ""), cert_item.get("error", ""),
                             cert_item.get("subject", ""), cert_item.get("issuer", ""),

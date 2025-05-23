@@ -26,7 +26,7 @@ def get_flask_app():
     Create and return a Flask app instance for WSGI servers.
 
     This function provides a Flask app instance with similar configuration
-    as run_server, suitable for deployment with WSGI servers like waitress.
+    as run_server, suitable zfor deployment with WSGI servers like waitress.
 
     Returns:
         Flask: Configured Flask application instance.
@@ -129,15 +129,16 @@ def get_flask_app():
                 current_app.logger.warning(f"API: Port {port_to_use} for host {host} (from '{domain_entry}') is invalid. Using default {connect_port_from_json}.")
                 port_to_use = connect_port_from_json
 
-            results.append(
-                analyze_certificates(
-                    domain=host,
-                    port=port_to_use,
-                    insecure=insecure_flag,
-                    skip_transparency=no_transparency_flag,
-                    perform_crl_check=not no_crl_check_flag
-                )
+            analysis_result = analyze_certificates(
+                domain=host,
+                port=port_to_use,
+                insecure=insecure_flag,
+                skip_transparency=no_transparency_flag,
+                perform_crl_check=not no_crl_check_flag
             )
+            # Include OCSP results in JSON API
+            analysis_result["ocsp_check"] = analysis_result.get("ocsp_check", {})
+            results.append(analysis_result)
         return jsonify(results)
     return app
 
