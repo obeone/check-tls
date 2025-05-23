@@ -7,7 +7,7 @@ import shtab  # Import shtab
 from urllib.parse import urlparse
 from check_tls import __version__
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
-from check_tls.web_server import run_server
+from check_tls.web_server import run_server, get_flask_app
 
 def print_human_summary(results):
     """
@@ -147,6 +147,38 @@ def print_human_summary(results):
             if crl_uri:
                 print(f"  Checked URI : {crl_uri}")
 
+        # OCSP section
+        print("\n\033[1mOCSP Check (Leaf):\033[0m")
+        ocsp_check = result.get("ocsp_check", {})
+        if not ocsp_check.get("checked"):
+            print("  Status      : \033[93mSkipped\033[0m")  # Yellow for Skipped
+        else:
+            status = ocsp_check.get("status", "error")
+            details = ocsp_check.get("details", {}) # Ensure details is a dict
+            checked_url = ocsp_check.get("checked_url", "N/A")
+
+            # Map OCSP status to colorized text
+            ocsp_status_map = {
+                "good": "\033[92m✔️ Good\033[0m",  # Green
+                "revoked": "\033[91m❌ REVOKED\033[0m",  # Red
+                "unknown": "\033[93m❓ Unknown\033[0m",  # Yellow
+                "error": "\033[91m❌ Error\033[0m"  # Red
+            }
+            status_text = ocsp_status_map.get(status, "\033[91m❌ Error\033[0m") # Default to Red Error
+
+            print(f"  Status      : {status_text}")
+            print(f"  Checked URL : {checked_url}")
+
+            # Display revocation reason or error
+            revocation_reason = details.get("revocation_reason")
+            error_message = details.get("error")
+            if revocation_reason:
+                print(f"  Detail      : {revocation_reason}")
+            elif error_message:
+                print(f"  Detail      : \033[91m{error_message}\033[0m") # Red for error message
+            else:
+                print("  Detail      : No additional details.")
+
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.
         # Colorize the count based on whether certificates were found.
@@ -191,10 +223,10 @@ def print_human_summary(results):
                 if days_left < 0:
                     expiry_color = '\033[91m' # Red for expired (\033[91m)
                     expiry_emoji = '❌'
-                elif days_left < 30:
+                elif days_left < 10:
                     expiry_color = '\033[91m' # Red for less than 30 days (\033[91m)
                     expiry_emoji = '⚠️'
-                elif days_left < 90:
+                elif days_left < 30:
                     expiry_color = '\033[93m' # Yellow for less than 90 days (\033[93m)
                     expiry_emoji = '⏳'
                 else:
@@ -359,7 +391,7 @@ def main():
         if args.domains:
             logger.warning(
                 "Domains provided on the command line are ignored when running in server mode.")
-        # Pass all parsed args to the server function
+        app = get_flask_app()
         run_server(args)
 
     # Perform TLS analysis for specified domains

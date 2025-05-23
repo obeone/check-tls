@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>TLS Certificate & Connection Analyzer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Bootstrap 5 + Google Fonts -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="static/css/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+  <script src="static/js/app.js" defer></script>
+</head>
+<body>
+<div class="container my-4">
+
+  <h1 class="text-center mb-4">🔒 TLS Certificate & Connection Analyzer</h1>
+
+  <!-- FORM -->
+  <form id="analyze-form" class="card shadow-lg p-4 mb-5 bg-body rounded-4">
+    <div class="mb-3">
+      <label for="domains" class="form-label fw-bold">Domains to analyze <span class="text-muted">(comma or space separated)</span>:</label>
+      <input type="text" class="form-control form-control-lg" id="domains" name="domains" placeholder="e.g. example.com test.org:8443" required>
+    </div>
+    <div class="mb-3 row g-2">
+      <div class="col-12 col-md-4">
+        <label for="connect_port" class="form-label">Default Port</label>
+        <input type="number" class="form-control" id="connect_port" name="connect_port" value="443" min="1" max="65535">
+      </div>
+      <div class="col-4 col-md-2 form-check mt-4">
+        <input class="form-check-input" type="checkbox" id="insecure" name="insecure" value="true">
+        <label class="form-check-label" for="insecure">Ignore SSL errors</label>
+      </div>
+      <div class="col-4 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" id="no_transparency" name="no_transparency" value="true">
+        <label class="form-check-label" for="no_transparency">Skip Transparency Check</label>
+      </div>
+      <div class="col-4 col-md-3 form-check mt-4">
+        <input class="form-check-input" type="checkbox" id="no_crl_check" name="no_crl_check" value="true">
+        <label class="form-check-label" for="no_crl_check">Disable CRL Check</label>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-lg w-100 mt-2">Analyze</button>
+  </form>
+
+  <!-- STICKY SUMMARY TABLE (will be filled by JS) -->
+  <div id="summary-table-wrapper" class="sticky-top bg-body" style="z-index:10; display:none;">
+    <div class="card shadow border-0 mb-4">
+      <div class="card-header bg-gradient bg-primary text-white fw-bold">
+        Quick Summary
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table mb-0 table-hover align-middle" id="summary-table">
+            <thead>
+              <tr>
+                <th>Domain</th>
+                <th>Status</th>
+                <th>CN</th>
+                <th>Expires</th>
+                <th>Issuer</th>
+                <th>TLS</th>
+                <th>CRL</th>
+                <th>OCSP</th>
+                <th>Transparency</th>
+                <th>crt.sh</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Spinner -->
+  <div id="loading-spinner" class="text-center my-4" style="display: none;">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="text-muted mt-2">Analyzing...</p>
+  </div>
+
+  <!-- RESULTS CARDS -->
+  <div id="results"></div>
+<!-- OCSP section (now integrated into summary table) -->
+</div>
+</body>
+</html>
