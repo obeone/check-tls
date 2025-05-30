@@ -5,6 +5,7 @@
 [![PyPI Version](https://img.shields.io/pypi/v/check-tls.svg)](https://pypi.org/project/check-tls/)
 [![Docker Hub](https://img.shields.io/badge/Docker%20Hub-obeoneorg%2Fcheck--tls-blue?logo=docker)](https://hub.docker.com/r/obeoneorg/check-tls)
 [![GHCR.io](https://img.shields.io/badge/GHCR.io-obeone%2Fcheck--tls-blue?logo=github)](https://ghcr.io/obeone/check-tls)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/obeone/check-tls)
 
 A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for any domain.
 
