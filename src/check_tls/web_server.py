@@ -35,7 +35,7 @@ def get_flask_app():
     # __file__ gives the path to the current file (web_server.py)
     # os.path.dirname(__file__) gives the directory of the current file (src/check_tls)
     # os.path.join(os.path.dirname(__file__), '..', '..') navigates two levels up to the project root
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    project_root = os.path.dirname(__file__)
     app = Flask(__name__,
                 template_folder=os.path.join(project_root, 'templates'),
                 static_folder=os.path.join(project_root, 'static'))
