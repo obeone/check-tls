@@ -26,7 +26,7 @@ def get_flask_app():
     Create and return a Flask app instance for WSGI servers.
 
     This function provides a Flask app instance with similar configuration
-    as run_server, suitable zfor deployment with WSGI servers like waitress.
+    as run_server, suitable for deployment with WSGI servers like waitress.
 
     Returns:
         Flask: Configured Flask application instance.
