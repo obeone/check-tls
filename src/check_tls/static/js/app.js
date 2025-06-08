@@ -6,6 +6,25 @@ document.addEventListener('DOMContentLoaded', function() {
   const resultsDiv = document.getElementById('results');
   const summaryTableWrapper = document.getElementById('summary-table-wrapper');
   const summaryTableBody = document.querySelector('#summary-table tbody');
+  const themeToggle = document.getElementById('theme-toggle');
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    localStorage.setItem('theme', theme);
+    if (themeToggle) {
+      themeToggle.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+    }
+  }
+
+  const savedTheme = localStorage.getItem('theme') || document.documentElement.getAttribute('data-bs-theme') || 'dark';
+  applyTheme(savedTheme);
+
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const newTheme = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+      applyTheme(newTheme);
+    });
+  }
 
   // Helper for status badge/icon
   function statusBadge(status) {

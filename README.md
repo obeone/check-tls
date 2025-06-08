@@ -199,6 +199,7 @@ The tool provides the following OCSP statuses for the leaf certificate:
 - User-friendly web UI for interactive analysis
 - Supports all CLI options via the browser
 - Great for demos, teams, and non-CLI users!
+- Includes a light/dark theme toggle
 
 ---
 

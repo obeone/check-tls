@@ -1,4 +1,4 @@
-:root {
+:root[data-bs-theme='dark'] {
   --primary-bg-color: #22272e; /* Dark background */
   --secondary-bg-color: #2d333b; /* Slightly lighter for cards */
   --primary-text-color: #cdd9e5; /* Light text for readability */
@@ -18,6 +18,31 @@
   --button-primary-hover-bg: #79b8ff;
 
   --input-bg-color: #2d333b;
+  --input-border-color: var(--border-color);
+  --input-text-color: var(--primary-text-color);
+  --input-focus-border-color: var(--accent-color);
+}
+
+:root[data-bs-theme='light'] {
+  --primary-bg-color: #f8f9fa; /* Light background */
+  --secondary-bg-color: #ffffff; /* Cards */
+  --primary-text-color: #212529; /* Dark text */
+  --secondary-text-color: #6c757d; /* Muted text */
+  --accent-color: #0d6efd; /* Bootstrap blue */
+  --border-color: #dee2e6;
+
+  --status-ok-bg: #198754;
+  --status-ok-text: #ffffff;
+  --status-warning-bg: #ffc107;
+  --status-warning-text: #212529;
+  --status-critical-bg: #dc3545;
+  --status-critical-text: #ffffff;
+
+  --button-primary-bg: var(--accent-color);
+  --button-primary-text: #ffffff;
+  --button-primary-hover-bg: #0b5ed7;
+
+  --input-bg-color: #ffffff;
   --input-border-color: var(--border-color);
   --input-text-color: var(--primary-text-color);
   --input-focus-border-color: var(--accent-color);
