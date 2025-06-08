@@ -243,7 +243,7 @@ check-tls/
 │       ├── crl_utils.py
 │       ├── crtsh_utils.py
 │       └── __init__.py
-├── setup.py
+├── pyproject.toml
 ├── Dockerfile
 ├── README.md
 └── ...
@@ -279,9 +279,9 @@ A: By default, logs print to the console. Use `-l DEBUG` for more detail.
 
 - **Solution:** Make sure you installed with `pip install .` from the project root, and that you run scripts via `check-tls ...` or `python -m src.main ...`.
 
-**Problem:** `ERROR: ... does not appear to be a Python project: neither 'setup.py' nor 'pyproject.toml' found.`
+**Problem:** `ERROR: ... does not appear to be a Python project: 'pyproject.toml' not found.`
 
-- **Solution:** Ensure `setup.py` is at the project root, not inside `src/`.
+- **Solution:** Ensure `pyproject.toml` is at the project root, not inside `src/`.
 
 **Problem:** Web server runs but browser shows error
 
@@ -289,7 +289,7 @@ A: By default, logs print to the console. Use `-l DEBUG` for more detail.
 
 **Problem:** Docker build fails or can't find files
 
-- **Solution:** Make sure your Dockerfile matches the new project structure and copies both `setup.py` and the `src/` folder.
+- **Solution:** Make sure your Dockerfile matches the new project structure and copies both `pyproject.toml` and the `src/` folder.
 
 **Problem:** Can't bind to port 8000
 
@@ -320,6 +320,6 @@ MIT License © Grégoire Compagnon (obeone)
 
 ## 📦 Release & Publish
 
-To publish a new version to PyPI, push a new release to GitHub. The GitHub Actions workflow will build and publish automatically if the release tag matches the version in `setup.py`.
+To publish a new version to PyPI, push a new release to GitHub. The GitHub Actions workflow will build and publish automatically if the release tag matches the version in `pyproject.toml`.
 
 See `.github/workflows/publish-to-pypi.yaml` for details.
