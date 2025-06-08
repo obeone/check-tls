@@ -8,6 +8,7 @@ import ssl
 import sys
 import csv
 from typing import List, Optional, Dict, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor
 from check_tls.utils.cert_utils import *
 from check_tls.utils.crl_utils import *
 from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
@@ -644,7 +645,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
     logger.info(f"Starting analysis for {len(domains_input)} domain entry/entries: {', '.join(domains_input)}")
     logger.info(f"Mode: {mode}, Insecure Fetching: {insecure}, Transparency Check: {not skip_transparency}, CRL Check: {perform_crl_check}, OCSP Check: {perform_ocsp_check}")
 
-    for domain_entry_str in domains_input:
+    def process_domain(domain_entry_str: str) -> dict:
         parts = domain_entry_str.split(':', 1)
         domain_to_analyze = parts[0]
         port_to_analyze = 443  # Default HTTPS port
@@ -655,14 +656,19 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 if 1 <= port_val <= 65535:
                     port_to_analyze = port_val
                 else:
-                    logger.warning(f"Port {port_val} for {domain_to_analyze} is out of valid range (1-65535). Using default port 443.")
+                    logger.warning(
+                        f"Port {port_val} for {domain_to_analyze} is out of valid range (1-65535). Using default port 443."
+                    )
             except ValueError:
-                logger.warning(f"Invalid port format '{parts[1]}' for {domain_to_analyze}. Using default port 443.")
+                logger.warning(
+                    f"Invalid port format '{parts[1]}' for {domain_to_analyze}. Using default port 443."
+                )
 
-        logger.info(f"--- Analyzing domain: {domain_to_analyze} on port {port_to_analyze} ---")
+        logger.info(
+            f"--- Analyzing domain: {domain_to_analyze} on port {port_to_analyze} ---"
+        )
         domain_start_time = datetime.datetime.now(timezone.utc)
         try:
-            # Call analyze_certificates with all named arguments, including the parsed port
             analysis_result = analyze_certificates(
                 domain=domain_to_analyze,
                 port=port_to_analyze,
@@ -670,14 +676,14 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 insecure=insecure,
                 skip_transparency=skip_transparency,
                 perform_crl_check=perform_crl_check,
-                perform_ocsp_check=perform_ocsp_check
+                perform_ocsp_check=perform_ocsp_check,
             )
-            results.append(analysis_result)
         except Exception as e:
             analysis_ts = datetime.datetime.now(timezone.utc).isoformat()
-            logger.exception(f"Unexpected critical error during analysis of {domain_to_analyze}:{port_to_analyze}: {e}")
-            # Ensure the error result structure matches what analyze_certificates would return on failure
-            results.append({
+            logger.exception(
+                f"Unexpected critical error during analysis of {domain_to_analyze}:{port_to_analyze}: {e}"
+            )
+            analysis_result = {
                 "domain": f"{domain_to_analyze}:{port_to_analyze}",
                 "analysis_timestamp": analysis_ts,
                 "status": "failed",
@@ -686,11 +692,25 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 "validation": {"system_trust_store": None, "error": str(e)},
                 "certificates": [],
                 "transparency": {"checked": False, "error": str(e)},
-                "crl_check": {"checked": perform_crl_check, "leaf_status": "error", "details": {"reason": str(e)}},
-                "ocsp_check": {"checked": perform_ocsp_check, "status": "error", "details": {"reason": str(e)}},
-            })
+                "crl_check": {
+                    "checked": perform_crl_check,
+                    "leaf_status": "error",
+                    "details": {"reason": str(e)},
+                },
+                "ocsp_check": {
+                    "checked": perform_ocsp_check,
+                    "status": "error",
+                    "details": {"reason": str(e)},
+                },
+            }
         domain_end_time = datetime.datetime.now(timezone.utc)
-        logger.info(f"--- Finished analyzing {domain_to_analyze}:{port_to_analyze} in {(domain_end_time - domain_start_time).total_seconds():.2f}s ---")
+        logger.info(
+            f"--- Finished analyzing {domain_to_analyze}:{port_to_analyze} in {(domain_end_time - domain_start_time).total_seconds():.2f}s ---"
+        )
+        return analysis_result
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_domain, domains_input))
 
     overall_end_time = datetime.datetime.now(timezone.utc)
     logger.info(f"Completed analysis of {len(domains_input)} domain entry/entries in {(overall_end_time - overall_start_time).total_seconds():.2f}s")
