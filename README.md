@@ -146,6 +146,7 @@ The TLS Analyzer also provides a REST API for programmatic access. By default, t
   - `insecure` (optional, boolean): Allow insecure (self-signed) certs
   - `no_transparency` (optional, boolean): Skip certificate transparency check
   - `no_crl_check` (optional, boolean): Disable CRL check
+  - `no_ocsp_check` (optional, boolean): Disable OCSP check
 
 #### Example curl Request
 
