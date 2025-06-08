@@ -79,6 +79,7 @@ def get_flask_app():
         - insecure (bool)
         - no_transparency (bool)
         - no_crl_check (bool)
+        - no_ocsp_check (bool)
         - connect_port (int, optional, default: 443)
 
         Returns:
@@ -96,6 +97,7 @@ def get_flask_app():
         insecure_flag = bool(data.get('insecure', False))
         no_transparency_flag = bool(data.get('no_transparency', False))
         no_crl_check_flag = bool(data.get('no_crl_check', False))
+        no_ocsp_check_flag = bool(data.get('no_ocsp_check', False))
 
         try:
             connect_port_from_json = int(data.get('connect_port', 443))
@@ -134,7 +136,8 @@ def get_flask_app():
                 port=port_to_use,
                 insecure=insecure_flag,
                 skip_transparency=no_transparency_flag,
-                perform_crl_check=not no_crl_check_flag
+                perform_crl_check=not no_crl_check_flag,
+                perform_ocsp_check=not no_ocsp_check_flag
             )
             # Include OCSP results in JSON API
             analysis_result["ocsp_check"] = analysis_result.get("ocsp_check", {})
