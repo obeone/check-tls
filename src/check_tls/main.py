@@ -455,9 +455,12 @@ def main():
             logger.info(
                 f"Starting analysis for: {[item['original_entry'] for item in parsed_domains_for_analysis]}")
             results = []
-            # Analyze each domain entry individually
-            for item in parsed_domains_for_analysis:
+            # Analyze each domain entry individually with simple progress output
+            total = len(parsed_domains_for_analysis)
+            for idx, item in enumerate(parsed_domains_for_analysis, start=1):
                 logger.debug(f"Analyzing {item['host']}:{item['port']}")
+                domain_display = f"{item['host']}:{item['port']}"
+                print(f"\033[96m🔎 [{idx}/{total}] Analyzing {domain_display}...\033[0m", end='', flush=True)
                 results.append(
                     analyze_certificates(
                         domain=item['host'],
@@ -469,6 +472,7 @@ def main():
                         perform_ocsp_check=not args.no_ocsp_check
                     )
                 )
+                print(" \033[92mdone\033[0m")
             # Print human-readable output directly to the console
             print_human_summary(results)
         # If JSON or CSV output is requested, call run_analysis which handles the analysis and file writing.

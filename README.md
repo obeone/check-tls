@@ -115,6 +115,9 @@ check-tls google.com https://github.com:443 -j report.json
 
 Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
 
+When analyzing several domains, the CLI now shows a small progress message for
+each domain (e.g. `🔎 [2/3] Analyzing example.com:443... done`).
+
 **Key options:**
 
 - `-j, --json FILE`   Output JSON (use "-" for stdout)                                  
