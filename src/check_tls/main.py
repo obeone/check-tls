@@ -339,6 +339,8 @@ def create_parser():
                         help='Skip crt.sh certificate transparency check')
     parser.add_argument('--no-crl-check', action='store_true',
                         help='Disable CRL check for the leaf certificate')
+    parser.add_argument('--no-ocsp-check', action='store_true',
+                        help='Disable OCSP check for the leaf certificate')
 
     # Add shtab completion argument using the parser program name
     prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
@@ -463,7 +465,8 @@ def main():
                         mode=args.mode,
                         insecure=args.insecure,
                         skip_transparency=args.no_transparency,
-                        perform_crl_check=not args.no_crl_check
+                        perform_crl_check=not args.no_crl_check,
+                        perform_ocsp_check=not args.no_ocsp_check
                     )
                 )
             # Print human-readable output directly to the console
@@ -480,7 +483,8 @@ def main():
                 mode=args.mode,
                 insecure=args.insecure,
                 skip_transparency=args.no_transparency,
-                perform_crl_check=not args.no_crl_check
+                perform_crl_check=not args.no_crl_check,
+                perform_ocsp_check=not args.no_ocsp_check
             )
 
 
