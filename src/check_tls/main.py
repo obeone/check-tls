@@ -183,17 +183,20 @@ def print_human_summary(results):
         print("\n\033[1mDNS CAA Records:\033[0m")
         caa_check = result.get("caa_check", {})
         if not caa_check.get("checked"):
-            print("  Status      : \033[93mSkipped\033[0m")
+            print("  Status      : \033[93mNOT DEFINED\033[0m")
         elif caa_check.get("error"):
+            print("  Status      : \033[91mKO\033[0m")
             print(f"  Error       : \033[91m{caa_check['error']}\033[0m")
         elif caa_check.get("found"):
+            print("  Status      : \033[92mOK\033[0m")
             for rec in caa_check.get("records", []):
                 flags = rec.get('flags', '')
                 tag = rec.get('tag', '')
                 value = rec.get('value', '')
                 print(f"  {tag} = {value} (flags: {flags})")
         else:
-            print("  No CAA records found.")
+            print("  Status      : \033[91mKO\033[0m")
+            print("  Detail      : No CAA records found.")
 
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.

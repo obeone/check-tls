@@ -29,9 +29,9 @@ def query_caa(domain: str) -> Dict[str, Any]:
         answers = dns.resolver.resolve(domain, "CAA")
         for rdata in answers:
             result["records"].append({
-                "flags": getattr(rdata, "flags", None),
-                "tag": getattr(rdata, "tag", ""),
-                "value": getattr(rdata, "value", ""),
+                "flags": int(getattr(rdata, "flags", 0)),
+                "tag": str(getattr(rdata, "tag", "")),
+                "value": str(getattr(rdata, "value", "")),
             })
         result["found"] = len(result["records"]) > 0
     except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
