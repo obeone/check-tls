@@ -179,6 +179,22 @@ def print_human_summary(results):
             else:
                 print("  Detail      : No additional details.")
 
+        # DNS CAA section
+        print("\n\033[1mDNS CAA Records:\033[0m")
+        caa_check = result.get("caa_check", {})
+        if not caa_check.get("checked"):
+            print("  Status      : \033[93mSkipped\033[0m")
+        elif caa_check.get("error"):
+            print(f"  Error       : \033[91m{caa_check['error']}\033[0m")
+        elif caa_check.get("found"):
+            for rec in caa_check.get("records", []):
+                flags = rec.get('flags', '')
+                tag = rec.get('tag', '')
+                value = rec.get('value', '')
+                print(f"  {tag} = {value} (flags: {flags})")
+        else:
+            print("  No CAA records found.")
+
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.
         # Colorize the count based on whether certificates were found.
@@ -341,6 +357,8 @@ def create_parser():
                         help='Disable CRL check for the leaf certificate')
     parser.add_argument('--no-ocsp-check', action='store_true',
                         help='Disable OCSP check for the leaf certificate')
+    parser.add_argument('--no-caa-check', action='store_true',
+                        help='Disable DNS CAA record check')
 
     # Add shtab completion argument using the parser program name
     prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
@@ -469,7 +487,8 @@ def main():
                         insecure=args.insecure,
                         skip_transparency=args.no_transparency,
                         perform_crl_check=not args.no_crl_check,
-                        perform_ocsp_check=not args.no_ocsp_check
+                        perform_ocsp_check=not args.no_ocsp_check,
+                        perform_caa_check=not args.no_caa_check
                     )
                 )
                 print(" \033[92mdone\033[0m")
@@ -488,7 +507,8 @@ def main():
                 insecure=args.insecure,
                 skip_transparency=args.no_transparency,
                 perform_crl_check=not args.no_crl_check,
-                perform_ocsp_check=not args.no_ocsp_check
+                perform_ocsp_check=not args.no_ocsp_check,
+                perform_caa_check=not args.no_caa_check
             )
 
 

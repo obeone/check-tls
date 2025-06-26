@@ -39,7 +39,7 @@ def get_flask_app():
     app = Flask(__name__,
                 template_folder=os.path.join(project_root, 'templates'),
                 static_folder=os.path.join(project_root, 'static'))
-    app.config['SCRIPT_ARGS'] = argparse.Namespace(insecure=False, no_transparency=False, no_crl_check=False, connect_port=443)
+    app.config['SCRIPT_ARGS'] = argparse.Namespace(insecure=False, no_transparency=False, no_crl_check=False, no_caa_check=False, connect_port=443)
 
     @app.route('/', methods=['GET'])
     def index():
@@ -57,6 +57,7 @@ def get_flask_app():
         insecure_checked = script_args.insecure
         no_transparency_checked = script_args.no_transparency
         no_crl_check_checked = script_args.no_crl_check
+        no_caa_check_checked = script_args.no_caa_check
         # Use script_args.connect_port if available (though not directly set by current CLI for server mode)
         # or default to 443 for the form's initial display.
         connect_port_value = getattr(script_args, 'connect_port', 443)
@@ -66,6 +67,7 @@ def get_flask_app():
             insecure_checked=insecure_checked,
             no_transparency_checked=no_transparency_checked,
             no_crl_check_checked=no_crl_check_checked,
+            no_caa_check_checked=no_caa_check_checked,
             connect_port_value=connect_port_value,
             get_tooltip=get_tooltip
         )
@@ -98,6 +100,7 @@ def get_flask_app():
         no_transparency_flag = bool(data.get('no_transparency', False))
         no_crl_check_flag = bool(data.get('no_crl_check', False))
         no_ocsp_check_flag = bool(data.get('no_ocsp_check', False))
+        no_caa_check_flag = bool(data.get('no_caa_check', False))
 
         try:
             connect_port_from_json = int(data.get('connect_port', 443))
@@ -137,10 +140,12 @@ def get_flask_app():
                 insecure=insecure_flag,
                 skip_transparency=no_transparency_flag,
                 perform_crl_check=not no_crl_check_flag,
-                perform_ocsp_check=not no_ocsp_check_flag
+                perform_ocsp_check=not no_ocsp_check_flag,
+                perform_caa_check=not no_caa_check_flag
             )
             # Include OCSP results in JSON API
             analysis_result["ocsp_check"] = analysis_result.get("ocsp_check", {})
+            analysis_result["caa_check"] = analysis_result.get("caa_check", {})
             results.append(analysis_result)
         return jsonify(results)
     return app
