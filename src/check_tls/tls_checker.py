@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from check_tls.utils.cert_utils import *
 from check_tls.utils.crl_utils import *
 from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
+from check_tls.utils.dns_utils import query_caa
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID, AuthorityInformationAccessOID
@@ -377,7 +378,7 @@ def detect_profile(cert: x509.Certificate) -> str:
 
     return profile
 
-def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True) -> dict:
+def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True) -> dict:
     """
     Analyze the certificates of a domain, including leaf and intermediate certificates,
     perform validation, CRL, OCSP checks, and certificate transparency checks.
@@ -390,6 +391,7 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         skip_transparency (bool): Whether to skip Certificate Transparency log checks.
         perform_crl_check (bool): Whether to perform Certificate Revocation List (CRL) checks.
         perform_ocsp_check (bool): Whether to perform Online Certificate Status Protocol (OCSP) checks.
+        perform_caa_check (bool): Whether to check DNS CAA records.
 
     Returns:
         dict: A dictionary containing analysis results, including connection info,
@@ -429,6 +431,12 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
             "checked": False,
             "status": None,
             "details": None,
+        },
+        "caa_check": {
+            "checked": False,
+            "found": None,
+            "records": None,
+            "error": None,
         },
     }
 
@@ -580,6 +588,13 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         logger.info(f"Skipping OCSP check for {domain} as requested.")
         result["ocsp_check"]["checked"] = False
 
+    logger.info(f"Checking DNS CAA records for {domain}...")
+    try:
+        caa_info = query_caa(domain)
+        result["caa_check"].update(caa_info)
+    except Exception as e:
+        result["caa_check"].update({"checked": True, "found": False, "records": None, "error": str(e)})
+
     # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
         ct_results = query_crtsh_multi(domain)
@@ -624,7 +639,7 @@ def get_log_level(level_str: str):
     """
     return getattr(logging, level_str.upper(), logging.WARNING)
 
-def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True):
+def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True):
     """
     Run TLS analysis for a list of domains (which can include ports) and output results.
 
@@ -637,6 +652,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
         skip_transparency (bool): Skip crt.sh transparency checks.
         perform_crl_check (bool): Perform CRL checks.
         perform_ocsp_check (bool): Perform OCSP checks.
+        perform_caa_check (bool): Perform DNS CAA checks.
     """
     logger = logging.getLogger("certcheck")
     results = [] # Changed from all_results to results to match original variable name
@@ -677,6 +693,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 skip_transparency=skip_transparency,
                 perform_crl_check=perform_crl_check,
                 perform_ocsp_check=perform_ocsp_check,
+                perform_caa_check=perform_caa_check,
             )
         except Exception as e:
             analysis_ts = datetime.datetime.now(timezone.utc).isoformat()
@@ -701,6 +718,12 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                     "checked": perform_ocsp_check,
                     "status": "error",
                     "details": {"reason": str(e)},
+                },
+                "caa_check": {
+                    "checked": perform_caa_check,
+                    "found": None,
+                    "records": None,
+                    "error": str(e),
                 },
             }
         domain_end_time = datetime.datetime.now(timezone.utc)
@@ -730,7 +753,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 'tls_checked', 'tls_error', 'tls_version', 'supports_tls13', 'cipher_suite',
                 'system_trust_store', 'validation_error',
                 'crl_checked', 'crl_leaf_status', 'crl_detail',
-                'ocsp_checked', 'ocsp_status', 'ocsp_detail', # Added OCSP CSV headers
+                'ocsp_checked', 'ocsp_status', 'ocsp_detail',
+                'caa_checked', 'caa_found', 'caa_error', 'caa_records',
                 'ct_checked', 'ct_total_records', 'ct_errors', 'ct_details',
                 'cert_index', 'cert_error', 'subject', 'issuer', 'common_name', 'serial_number', 'version', 'not_before', 'not_after', 'days_remaining',
                 'sha256_fingerprint', 'signature_algorithm', 'public_key_algorithm', 'public_key_size', 'profile', 'san', 'has_scts', 'is_ca', 'path_length_constraint'
@@ -747,7 +771,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 conn_health = res_item.get('connection_health', {})
                 validation_info = res_item.get('validation', {})
                 crl_info = res_item.get('crl_check', {})
-                ocsp_info = res_item.get('ocsp_check', {}) # Get OCSP info
+                ocsp_info = res_item.get('ocsp_check', {})
+                caa_info = res_item.get('caa_check', {})
 
                 if not certs_list:
                     writer.writerow([
@@ -758,8 +783,10 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                         validation_info.get('system_trust_store'), validation_info.get('error'),
                         crl_info.get('checked'), crl_info.get('leaf_status'),
                         json.dumps(crl_info.get('details')),
-                        ocsp_info.get('checked'), ocsp_info.get('status'), # Added OCSP CSV data
-                        json.dumps(ocsp_info.get('details')), # Added OCSP CSV data
+                        ocsp_info.get('checked'), ocsp_info.get('status'),
+                        json.dumps(ocsp_info.get('details')),
+                        caa_info.get('checked'), caa_info.get('found'),
+                        caa_info.get('error'), json.dumps(caa_info.get('records')),
                         ct_checked, ct_total_records, ct_errors, ct_details,
                         # Empty certificate fields
                         "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""
@@ -774,8 +801,10 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                             validation_info.get('system_trust_store'), validation_info.get('error'),
                             crl_info.get('checked'), crl_info.get('leaf_status'),
                             json.dumps(crl_info.get('details')),
-                            ocsp_info.get('checked'), ocsp_info.get('status'), # Added OCSP CSV data
-                            json.dumps(ocsp_info.get('details')), # Added OCSP CSV data
+                            ocsp_info.get('checked'), ocsp_info.get('status'),
+                            json.dumps(ocsp_info.get('details')),
+                            caa_info.get('checked'), caa_info.get('found'),
+                            caa_info.get('error'), json.dumps(caa_info.get('records')),
                             ct_checked, ct_total_records, ct_errors, ct_details,
                             cert_item.get("chain_index", ""), cert_item.get("error", ""),
                             cert_item.get("subject", ""), cert_item.get("issuer", ""),
