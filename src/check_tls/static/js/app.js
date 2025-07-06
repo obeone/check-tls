@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!caa || !caa.checked) return '<span class="badge bg-secondary">NOT DEFINED</span>';
     if (caa.error) return '<span class="badge badge-expired">KO</span>';
     if (caa.found) return '<span class="badge badge-ok">OK</span>';
-    return '<span class="badge badge-expired">KO</span>';
+    return '<span class="badge badge-warning">NOT DEFINED</span>';
   }
 
   function transparencyBadge(transparencyData) {
@@ -83,8 +83,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!transparencyData.checked) return '<span class="badge bg-secondary">N/A (Skipped)</span>';
 
     if (transparencyData.errors && Object.keys(transparencyData.errors).length > 0) {
-        // If there are errors for any domain part, mark as error
-        return '<span class="badge badge-expired">Error</span>';
+        return '<span class="badge badge-warning">NOT DEFINED</span>';
     }
     // Check if records were found. crtsh_records_found can be 0.
     if (typeof transparencyData.crtsh_records_found === 'number' && transparencyData.crtsh_records_found > 0) {
@@ -240,7 +239,7 @@ document.addEventListener('DOMContentLoaded', function() {
           : '-';
         let statusBadge = '';
         if (transparencyData.errors && transparencyData.errors[domain]) {
-            statusBadge = '<span class="badge bg-danger">Error</span>';
+            statusBadge = '<span class="badge bg-warning">Not Defined</span>';
         } else if (recordCount === 'Error/Timeout') {
             statusBadge = '<span class="badge bg-warning">Timeout/Error</span>';
         } else if (recordCount > 0) {
@@ -266,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tableRows += `
               <tr>
                 <td>${domain}</td>
-                <td class="text-center"><span class="badge bg-danger">Error: ${transparencyData.errors[domain]}</span></td>
+                <td class="text-center"><span class="badge bg-warning">Not Defined</span></td>
                 <td class="text-center">${crtshLink}</td>
               </tr>`;
         }

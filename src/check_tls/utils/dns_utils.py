@@ -35,7 +35,9 @@ def query_caa(domain: str) -> Dict[str, Any]:
             })
         result["found"] = len(result["records"]) > 0
     except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-        result["error"] = "No CAA records"
+        # No CAA records exist for the domain. This is not an error.
+        result["found"] = False
+        result["records"] = []
     except dns.exception.DNSException as exc:
         result["error"] = str(exc)
     return result

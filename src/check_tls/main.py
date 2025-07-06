@@ -195,8 +195,7 @@ def print_human_summary(results):
                 value = rec.get('value', '')
                 print(f"  {tag} = {value} (flags: {flags})")
         else:
-            print("  Status      : \033[91mKO\033[0m")
-            print("  Detail      : No CAA records found.")
+            print("  Status      : \033[93mNOT DEFINED\033[0m")
 
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.
@@ -289,13 +288,12 @@ def print_human_summary(results):
             details = trans.get('details', {})
             links = trans.get('crtsh_report_links', {})
             total = trans.get('crtsh_records_found', 0)
-            # Display errors encountered during the crt.sh query
             if trans.get('errors'):
-                print("  \033[91mErrors found during crt.sh query:\033[0m") # Red for errors (\033[91m)
+                print("  Status: \033[93mNOT DEFINED\033[0m")
                 for d, err in trans['errors'].items():
                     link = links.get(d)
                     link_str = f" (See: {link})" if link else ""
-                    print(f"    ❌ {d}: Error: {err}{link_str}")
+                    print(f"    ⚠️ {d}: {err}{link_str}")
             # Display details of records found on crt.sh
             if details:
                 print("  \033[92mTransparency log records (crt.sh):\033[0m") # Green for records found (\033[92m)
