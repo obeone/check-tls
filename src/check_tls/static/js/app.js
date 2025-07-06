@@ -46,6 +46,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (support === false) return '<span class="badge badge-expired">No</span>';
     return '<span class="badge badge-warning">?</span>';
   }
+
+  function displayTlsVersion(version) {
+    if (!version) return '-';
+    return version === 'TLSv1.3' ? '' : version;
+  }
   function crlBadge(crl) {
     if (!crl || !crl.checked) return '<span class="badge bg-secondary">N/A</span>';
     if (crl.leaf_status === "good") return '<span class="badge badge-ok">Good</span>';
@@ -116,7 +121,7 @@ document.addEventListener('DOMContentLoaded', function() {
               ${expiryBadge(leaf.days_remaining ?? 0)}
           </td>
           <td data-bs-toggle="tooltip" data-bs-title="Issuer of the leaf certificate.">${leaf.issuer || '-'}</td>
-          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${(r.connection_health && r.connection_health.tls_version) || '-' }
+          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${displayTlsVersion(r.connection_health && r.connection_health.tls_version)}
               ${tls13Badge(r.connection_health && r.connection_health.supports_tls13)}
           </td>
           <td data-bs-toggle="tooltip" data-bs-title="Certificate Revocation List (CRL) check status for the leaf certificate.">${crlBadge(r.crl_check)}</td>
@@ -183,7 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">
             <span class="fw-semibold text-muted">TLS:</span><br>
-            <span class="fs-6">${(result.connection_health && result.connection_health.tls_version) || '-'}</span>
+            <span class="fs-6">${displayTlsVersion(result.connection_health && result.connection_health.tls_version)}</span>
             ${tls13Badge(result.connection_health && result.connection_health.supports_tls13)}
           </div>
         </div>
