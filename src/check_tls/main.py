@@ -179,6 +179,24 @@ def print_human_summary(results):
             else:
                 print("  Detail      : No additional details.")
 
+        # DNS CAA section
+        print("\n\033[1mDNS CAA Records:\033[0m")
+        caa_check = result.get("caa_check", {})
+        if not caa_check.get("checked"):
+            print("  Status      : \033[93mNOT DEFINED\033[0m")
+        elif caa_check.get("error"):
+            print("  Status      : \033[91mKO\033[0m")
+            print(f"  Error       : \033[91m{caa_check['error']}\033[0m")
+        elif caa_check.get("found"):
+            print("  Status      : \033[92mOK\033[0m")
+            for rec in caa_check.get("records", []):
+                flags = rec.get('flags', '')
+                tag = rec.get('tag', '')
+                value = rec.get('value', '')
+                print(f"  {tag} = {value} (flags: {flags})")
+        else:
+            print("  Status      : \033[93mNOT DEFINED\033[0m")
+
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.
         # Colorize the count based on whether certificates were found.
@@ -270,13 +288,12 @@ def print_human_summary(results):
             details = trans.get('details', {})
             links = trans.get('crtsh_report_links', {})
             total = trans.get('crtsh_records_found', 0)
-            # Display errors encountered during the crt.sh query
             if trans.get('errors'):
-                print("  \033[91mErrors found during crt.sh query:\033[0m") # Red for errors (\033[91m)
+                print("  Status: \033[93mNOT DEFINED\033[0m")
                 for d, err in trans['errors'].items():
                     link = links.get(d)
                     link_str = f" (See: {link})" if link else ""
-                    print(f"    ❌ {d}: Error: {err}{link_str}")
+                    print(f"    ⚠️ {d}: {err}{link_str}")
             # Display details of records found on crt.sh
             if details:
                 print("  \033[92mTransparency log records (crt.sh):\033[0m") # Green for records found (\033[92m)
@@ -341,6 +358,8 @@ def create_parser():
                         help='Disable CRL check for the leaf certificate')
     parser.add_argument('--no-ocsp-check', action='store_true',
                         help='Disable OCSP check for the leaf certificate')
+    parser.add_argument('--no-caa-check', action='store_true',
+                        help='Disable DNS CAA record check')
 
     # Add shtab completion argument using the parser program name
     prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
@@ -469,7 +488,8 @@ def main():
                         insecure=args.insecure,
                         skip_transparency=args.no_transparency,
                         perform_crl_check=not args.no_crl_check,
-                        perform_ocsp_check=not args.no_ocsp_check
+                        perform_ocsp_check=not args.no_ocsp_check,
+                        perform_caa_check=not args.no_caa_check
                     )
                 )
                 print(" \033[92mdone\033[0m")
@@ -488,7 +508,8 @@ def main():
                 insecure=args.insecure,
                 skip_transparency=args.no_transparency,
                 perform_crl_check=not args.no_crl_check,
-                perform_ocsp_check=not args.no_ocsp_check
+                perform_ocsp_check=not args.no_ocsp_check,
+                perform_caa_check=not args.no_caa_check
             )
 
 

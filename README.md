@@ -46,6 +46,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 - **Profile Detection**: Detects usage profiles (server, email, code signing, etc.)
 - **CRL & Transparency**: Checks CRL status and certificate transparency logs
 - **OCSP Check**: Perform OCSP revocation checks for leaf certificates.
+- **CAA Check**: Display DNS CAA records for the domain.
 - **Flexible Output**: Human-readable (color), JSON, CSV
 - **Web UI**: Interactive browser-based analysis
 - **Dockerized**: Use with zero local setup
@@ -132,6 +133,7 @@ each domain (e.g. `🔎 [2/3] Analyzing example.com:443... done`).
 - `--no-transparency` Skip transparency check
 - `--no-crl-check`    Skip CRL check
 - `--no-ocsp-check`   Disable OCSP revocation check (enabled by default)
+- `--no-caa-check`    Disable DNS CAA check
 
 ---
 
@@ -150,6 +152,7 @@ The TLS Analyzer also provides a REST API for programmatic access. By default, t
   - `no_transparency` (optional, boolean): Skip certificate transparency check
   - `no_crl_check` (optional, boolean): Disable CRL check
   - `no_ocsp_check` (optional, boolean): Disable OCSP check
+  - `no_caa_check` (optional, boolean): Disable CAA check
 
 #### Example curl Request
 

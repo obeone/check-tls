@@ -46,6 +46,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (support === false) return '<span class="badge badge-expired">No</span>';
     return '<span class="badge badge-warning">?</span>';
   }
+
+  function displayTlsVersion(version) {
+    if (!version) return '-';
+    return version === 'TLSv1.3' ? '' : version;
+  }
   function crlBadge(crl) {
     if (!crl || !crl.checked) return '<span class="badge bg-secondary">N/A</span>';
     if (crl.leaf_status === "good") return '<span class="badge badge-ok">Good</span>';
@@ -65,6 +70,13 @@ document.addEventListener('DOMContentLoaded', function() {
     return '<span class="badge badge-expired">Error</span>'; // Default for other cases like error
   }
 
+  function caaBadge(caa) {
+    if (!caa || !caa.checked) return '<span class="badge bg-secondary">NOT DEFINED</span>';
+    if (caa.error) return '<span class="badge badge-expired">KO</span>';
+    if (caa.found) return '<span class="badge badge-ok">OK</span>';
+    return '<span class="badge badge-warning">NOT DEFINED</span>';
+  }
+
   function transparencyBadge(transparencyData) {
     // Updated based on Python output structure:
     // transparencyData is expected to be result.transparency
@@ -76,8 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!transparencyData.checked) return '<span class="badge bg-secondary">N/A (Skipped)</span>';
 
     if (transparencyData.errors && Object.keys(transparencyData.errors).length > 0) {
-        // If there are errors for any domain part, mark as error
-        return '<span class="badge badge-expired">Error</span>';
+        return '<span class="badge badge-warning">NOT DEFINED</span>';
     }
     // Check if records were found. crtsh_records_found can be 0.
     if (typeof transparencyData.crtsh_records_found === 'number' && transparencyData.crtsh_records_found > 0) {
@@ -110,11 +121,12 @@ document.addEventListener('DOMContentLoaded', function() {
               ${expiryBadge(leaf.days_remaining ?? 0)}
           </td>
           <td data-bs-toggle="tooltip" data-bs-title="Issuer of the leaf certificate.">${leaf.issuer || '-'}</td>
-          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${(r.connection_health && r.connection_health.tls_version) || '-' }
+          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${displayTlsVersion(r.connection_health && r.connection_health.tls_version)}
               ${tls13Badge(r.connection_health && r.connection_health.supports_tls13)}
           </td>
           <td data-bs-toggle="tooltip" data-bs-title="Certificate Revocation List (CRL) check status for the leaf certificate.">${crlBadge(r.crl_check)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Online Certificate Status Protocol (OCSP) check status for the leaf certificate.">${ocspBadge(r.ocsp_check)}</td>
+          <td data-bs-toggle="tooltip" data-bs-title="Presence of DNS CAA records for the domain.">${caaBadge(r.caa_check)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Certificate Transparency (CT) log check status.">${transparencyBadge(r.transparency)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Link to crt.sh for the certificate or domain.">${crtshAnchor}</td>
           <td>
@@ -137,6 +149,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function renderResult(result, idx=0) {
     const leaf = (result.certificates || []).find(c => c.chain_index === 0 && !c.error) || {};
     const transparencyDetailsHtml = renderTransparencyDetailsTable(result.transparency, idx);
+    const caaDetailsHtml = renderCaaDetails(result.caa_check, idx);
     // Quick info
     // Determine CSS class for expiry text/badge based on days remaining
     // expired: Certificate has expired (days < 0)
@@ -175,7 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">
             <span class="fw-semibold text-muted">TLS:</span><br>
-            <span class="fs-6">${(result.connection_health && result.connection_health.tls_version) || '-'}</span>
+            <span class="fs-6">${displayTlsVersion(result.connection_health && result.connection_health.tls_version)}</span>
             ${tls13Badge(result.connection_health && result.connection_health.supports_tls13)}
           </div>
         </div>
@@ -195,6 +208,7 @@ document.addEventListener('DOMContentLoaded', function() {
               </div>
             </div>
           </div>
+          ${caaDetailsHtml}
           ${transparencyDetailsHtml}
         </div>
       </div>
@@ -230,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
           : '-';
         let statusBadge = '';
         if (transparencyData.errors && transparencyData.errors[domain]) {
-            statusBadge = '<span class="badge bg-danger">Error</span>';
+            statusBadge = '<span class="badge bg-warning">Not Defined</span>';
         } else if (recordCount === 'Error/Timeout') {
             statusBadge = '<span class="badge bg-warning">Timeout/Error</span>';
         } else if (recordCount > 0) {
@@ -256,7 +270,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tableRows += `
               <tr>
                 <td>${domain}</td>
-                <td class="text-center"><span class="badge bg-danger">Error: ${transparencyData.errors[domain]}</span></td>
+                <td class="text-center"><span class="badge bg-warning">Not Defined</span></td>
                 <td class="text-center">${crtshLink}</td>
               </tr>`;
         }
@@ -290,6 +304,62 @@ document.addEventListener('DOMContentLoaded', function() {
           <div class="accordion-body">
             ${tableHtml}
             ${transparencyData.total_records !== undefined ? `<p class="mt-2"><strong>Total records found across all queried domains: ${transparencyData.total_records}</strong></p>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderCaaDetails(caaData, parentIdx) {
+    if (!caaData || !caaData.checked) {
+      return `
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="heading-caa-${parentIdx}">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-caa-${parentIdx}">
+              DNS CAA Records
+            </button>
+          </h2>
+          <div id="collapse-caa-${parentIdx}" class="accordion-collapse collapse" aria-labelledby="heading-caa-${parentIdx}">
+            <div class="accordion-body">
+              <p class="text-muted">CAA check was skipped.</p>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    if (caaData.error) {
+      return `
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="heading-caa-${parentIdx}">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-caa-${parentIdx}">
+              DNS CAA Records
+            </button>
+          </h2>
+          <div id="collapse-caa-${parentIdx}" class="accordion-collapse collapse" aria-labelledby="heading-caa-${parentIdx}">
+            <div class="accordion-body">
+              <div class="alert alert-danger">${caaData.error}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    let rows = '';
+    if (Array.isArray(caaData.records)) {
+      caaData.records.forEach(r => {
+        rows += `<tr><td>${r.flags}</td><td>${r.tag}</td><td>${r.value}</td></tr>`;
+      });
+    }
+    const table = rows ? `<table class="table table-sm table-bordered"><thead><tr><th>Flags</th><th>Tag</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="text-muted">No CAA records found.</p>';
+
+    return `
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="heading-caa-${parentIdx}">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-caa-${parentIdx}">
+            DNS CAA Records
+          </button>
+        </h2>
+        <div id="collapse-caa-${parentIdx}" class="accordion-collapse collapse" aria-labelledby="heading-caa-${parentIdx}">
+          <div class="accordion-body">
+            ${table}
           </div>
         </div>
       </div>`;
@@ -336,13 +406,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const insecure = formData.get('insecure') === 'true';
     const noTransparency = formData.get('no_transparency') === 'true';
     const noCrlCheck = formData.get('no_crl_check') === 'true';
+    const noCaaCheck = formData.get('no_caa_check') === 'true';
 
     const payload = {
       domains: domainsArray,
       connect_port: connectPort,
       insecure: insecure,
       no_transparency: noTransparency,
-      no_crl_check: noCrlCheck
+      no_crl_check: noCrlCheck,
+      no_caa_check: noCaaCheck
     };
 
     fetch('/api/analyze', {

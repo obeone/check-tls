@@ -25,22 +25,30 @@
       <label for="domains" class="form-label fw-bold">Domains to analyze <span class="text-muted">(comma or space separated)</span>:</label>
       <input type="text" class="form-control form-control-lg" id="domains" name="domains" placeholder="e.g. example.com test.org:8443" required>
     </div>
-    <div class="mb-3 row g-2">
+    <div class="mb-3 row g-2 align-items-end">
       <div class="col-12 col-md-4">
         <label for="connect_port" class="form-label">Default Port</label>
         <input type="number" class="form-control" id="connect_port" name="connect_port" value="443" min="1" max="65535">
       </div>
-      <div class="col-4 col-md-2 form-check mt-4">
-        <input class="form-check-input" type="checkbox" id="insecure" name="insecure" value="true">
-        <label class="form-check-label" for="insecure">Ignore SSL errors</label>
-      </div>
-      <div class="col-4 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" id="no_transparency" name="no_transparency" value="true">
-        <label class="form-check-label" for="no_transparency">Skip Transparency Check</label>
-      </div>
-      <div class="col-4 col-md-3 form-check mt-4">
-        <input class="form-check-input" type="checkbox" id="no_crl_check" name="no_crl_check" value="true">
-        <label class="form-check-label" for="no_crl_check">Disable CRL Check</label>
+      <div class="col-12 col-md-8">
+        <div class="d-flex flex-wrap gap-3 mt-4" id="option-container">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="insecure" name="insecure" value="true">
+            <label class="form-check-label" for="insecure">Ignore SSL errors</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="no_transparency" name="no_transparency" value="true">
+            <label class="form-check-label" for="no_transparency">Skip Transparency Check</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="no_crl_check" name="no_crl_check" value="true">
+            <label class="form-check-label" for="no_crl_check">Disable CRL Check</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="no_caa_check" name="no_caa_check" value="true">
+            <label class="form-check-label" for="no_caa_check">Disable CAA Check</label>
+          </div>
+        </div>
       </div>
     </div>
     <button type="submit" class="btn btn-primary btn-lg w-100 mt-2">Analyze</button>
@@ -65,6 +73,7 @@
                 <th>TLS</th>
                 <th>CRL</th>
                 <th>OCSP</th>
+                <th>CAA</th>
                 <th>Transparency</th>
                 <th>crt.sh</th>
                 <th>Action</th>
