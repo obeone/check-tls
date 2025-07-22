@@ -66,6 +66,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (ocsp.status === "good") return '<span class="badge badge-ok">Good</span>';
     if (ocsp.status === "revoked") return '<span class="badge badge-expired">Revoked</span>';
     if (ocsp.status === "unknown") return '<span class="badge badge-warning">Unknown</span>';
+    if (ocsp.status === "no_ocsp_url") return '<span class="badge badge-warning">NOT DEFINED</span>';
     // Consider other statuses like 'error' or specific error messages if available in your data
     return '<span class="badge badge-expired">Error</span>'; // Default for other cases like error
   }
@@ -406,6 +407,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const insecure = formData.get('insecure') === 'true';
     const noTransparency = formData.get('no_transparency') === 'true';
     const noCrlCheck = formData.get('no_crl_check') === 'true';
+    const noOcspCheck = formData.get('no_ocsp_check') === 'true';
     const noCaaCheck = formData.get('no_caa_check') === 'true';
 
     const payload = {
@@ -414,6 +416,7 @@ document.addEventListener('DOMContentLoaded', function() {
       insecure: insecure,
       no_transparency: noTransparency,
       no_crl_check: noCrlCheck,
+      no_ocsp_check: noOcspCheck,
       no_caa_check: noCaaCheck
     };
 
@@ -470,13 +473,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 statusText = '❓ Unknown';
                 ocspStatusEl.className = 'text-secondary';
                 break;
+              case 'no_ocsp_url':
+                statusText = 'NOT DEFINED';
+                ocspStatusEl.className = 'text-warning';
+                break;
               default:
                 statusText = '❌ Error';
                 ocspStatusEl.className = 'text-danger';
             }
             ocspStatusEl.textContent = statusText;
-            ocspUrlEl.textContent    = (ocsp.details && ocsp.details.checked_url) || '';
-            ocspDetailEl.textContent = (ocsp.details && (ocsp.details.revocation_reason || ocsp.details.error)) || '';
+            ocspUrlEl.textContent    = ocsp.checked_url || '';
+            ocspDetailEl.textContent = (ocsp.details && (ocsp.details.revocation_reason || ocsp.details.error || ocsp.details.message)) || '';
           }
         }
       } else {
