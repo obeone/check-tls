@@ -407,6 +407,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const insecure = formData.get('insecure') === 'true';
     const noTransparency = formData.get('no_transparency') === 'true';
     const noCrlCheck = formData.get('no_crl_check') === 'true';
+    const noOcspCheck = formData.get('no_ocsp_check') === 'true';
     const noCaaCheck = formData.get('no_caa_check') === 'true';
 
     const payload = {
@@ -415,6 +416,7 @@ document.addEventListener('DOMContentLoaded', function() {
       insecure: insecure,
       no_transparency: noTransparency,
       no_crl_check: noCrlCheck,
+      no_ocsp_check: noOcspCheck,
       no_caa_check: noCaaCheck
     };
 
