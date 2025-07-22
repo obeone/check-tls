@@ -159,23 +159,25 @@ def print_human_summary(results):
 
             # Map OCSP status to colorized text
             ocsp_status_map = {
-                "good": "\033[92m✔️ Good\033[0m",  # Green
+                "good": "\033[92m✔️ Good\033[0m",      # Green
                 "revoked": "\033[91m❌ REVOKED\033[0m",  # Red
                 "unknown": "\033[93m❓ Unknown\033[0m",  # Yellow
-                "error": "\033[91m❌ Error\033[0m"  # Red
+                "no_ocsp_url": "\033[93mNOT DEFINED\033[0m",
+                "error": "\033[91m❌ Error\033[0m"      # Red
             }
-            status_text = ocsp_status_map.get(status, "\033[91m❌ Error\033[0m") # Default to Red Error
+            status_text = ocsp_status_map.get(status, "\033[91m❌ Error\033[0m")
 
             print(f"  Status      : {status_text}")
             print(f"  Checked URL : {checked_url}")
 
             # Display revocation reason or error
             revocation_reason = details.get("revocation_reason")
-            error_message = details.get("error")
+            error_message = details.get("error") or details.get("error_message") or details.get("message")
             if revocation_reason:
                 print(f"  Detail      : {revocation_reason}")
             elif error_message:
-                print(f"  Detail      : \033[91m{error_message}\033[0m") # Red for error message
+                color = "\033[93m" if status == "no_ocsp_url" else "\033[91m"
+                print(f"  Detail      : {color}{error_message}\033[0m")
             else:
                 print("  Detail      : No additional details.")
 

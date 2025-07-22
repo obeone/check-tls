@@ -190,10 +190,8 @@ The tool provides the following OCSP statuses for the leaf certificate:
 - **`revoked`**: The certificate has been revoked according to its OCSP responder.
 - **`unknown`**: The OCSP responder replied with an "unknown" status for the certificate. This means the responder doesn't have information about the certificate's status.
 - **`error`**: An error occurred while trying to perform the OCSP check (e.g., network issue, responder unavailable, malformed response). The specific error details are usually provided.
-- **`skipped`**: The OCSP check was not performed. This can happen if:
-    - The `--no-ocsp-check` flag was used.
-    - The certificate does not contain an OCSP URI.
-    - An OCSP check was not applicable for other reasons (e.g., for a CA certificate if only leaf certificate checks are configured).
+- **`no_ocsp_url`**: The certificate does not contain an OCSP URI.
+- **`skipped`**: The OCSP check was not performed because the `--no-ocsp-check` flag was used or it was not applicable.
 
 ---
 
