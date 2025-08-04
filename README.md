@@ -21,15 +21,16 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
     - [Alternative: With pip](#alternative-with-pip)
     - [With Docker](#with-docker)
   - [⚙️ Usage](#️-usage)
-    - [Example (pip)](#example-pip)
     - [Command Line](#command-line)
+    - [Web UI](#web-ui)
   - [🖥️ REST API Usage](#️-rest-api-usage)
     - [Analyze Domains (POST /api/analyze)](#analyze-domains-post-apianalyze)
       - [Example curl Request](#example-curl-request)
       - [Example JSON Response](#example-json-response)
-    - [OCSP Status](#ocsp-status)
+  - [OCSP Status Explained](#ocsp-status-explained)
   - [🌐 Web Interface](#-web-interface)
   - [✨ Shell Completion](#-shell-completion)
+  - [🗂️ Project Structure](#️-project-structure)
   - [❓ FAQ](#-faq)
   - [🛠️ Troubleshooting](#️-troubleshooting)
   - [👩‍💻 Development](#-development)
@@ -41,15 +42,18 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 ## 🚀 Features
 
-- **Comprehensive Analysis**: Fetches leaf & intermediate certificates (AIA fetching)
-- **Chain Validation**: Validates against system trust store
-- **Profile Detection**: Detects usage profiles (server, email, code signing, etc.)
-- **CRL & Transparency**: Checks CRL status and certificate transparency logs
-- **OCSP Check**: Perform OCSP revocation checks for leaf certificates.
-- **CAA Check**: Display DNS CAA records for the domain.
-- **Flexible Output**: Human-readable (color), JSON, CSV
-- **Web UI**: Interactive browser-based analysis
-- **Dockerized**: Use with zero local setup
+- **Comprehensive Analysis**: Fetches leaf & intermediate certificates using Authority Information Access (AIA).
+- **Chain Validation**: Validates the certificate chain against the system's default trust store.
+- **Profile Detection**: Detects certificate profiles like TLS Server, Code Signing, S/MIME, etc., based on Key Usage and Extended Key Usage extensions.
+- **Revocation Checks**:
+  - **OCSP**: Performs Online Certificate Status Protocol (OCSP) checks.
+  - **CRL**: Checks Certificate Revocation Lists (CRL).
+- **DNS CAA Check**: Displays DNS Certification Authority Authorization (CAA) records for the domain.
+- **Certificate Transparency**: Queries `crt.sh` for Certificate Transparency logs.
+- **Flexible Output**: Human-readable (color-coded), JSON, or CSV formats.
+- **Web UI**: Interactive browser-based analysis via a built-in Flask server.
+- **REST API**: Programmatic access for seamless integration into other tools.
+- **Dockerized**: Ready to use with zero local setup via Docker Hub or GHCR.
 
 ---
 
@@ -57,7 +61,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 ### Recommended: With pipx
 
-`pipx` installs CLI tools in isolated environments, avoiding dependency conflicts and keeping your system clean.
+`pipx` installs CLI tools in isolated environments, which is the safest way to install Python applications.
 
 ```sh
 pipx install check-tls
@@ -71,88 +75,122 @@ pip install check-tls
 
 ### With Docker
 
+Pull the latest image from Docker Hub or GHCR:
+
 ```sh
+# From Docker Hub
 docker pull obeoneorg/check-tls:latest
+
+# Or from GHCR.io
+docker pull ghcr.io/obeone/check-tls:latest
 ```
+
+**Running the Container**
+
+You can run the tool in either CLI mode or as a web server.
+
+**1. CLI Mode**
+
+To analyze a domain, pass it as a command to the container:
+
+```sh
+docker run --rm obeoneorg/check-tls:latest example.com
+```
+
+To output to a file on your host machine, mount a volume:
+
+```sh
+# Create a reports directory first: mkdir -p reports
+docker run --rm -v "$(pwd)/reports:/app/reports" \
+  obeoneorg/check-tls:latest example.com -j /app/reports/report.json
+```
+
+**2. Web Server Mode**
+
+To run the interactive web UI, use the `--server` flag and map the port:
+
+```sh
+docker run --rm -p 8000:8000 obeoneorg/check-tls:latest --server
+```
+
+The web interface will be available at <http://localhost:8000>.
 
 ---
 
 ## ⚙️ Usage
-
-### Example (pip)
-
-Analyze a domain:
-
-```sh
-check-tls example.com
-```
-
-Run the web UI:
-
-```sh
-check-tls --server
-```
-
-Visit <http://localhost:8000> in your browser.
 
 ### Command Line
 
 ![Screenshot of CLI Output](screenshot_cli.png)
 *Example: Command-line output for analyzing a domain (including OCSP status)*
 
-Analyze a domain:
+Analyze a single domain:
 
 ```sh
 check-tls example.com
-# Or with a full URL (port in URL overrides --connect-port)
+```
+
+Analyze a domain with a specific port:
+
+```sh
+# The port in the URL overrides the default or --connect-port
 check-tls https://example.net:9000
 ```
 
-Analyze multiple domains, output JSON:
+Analyze multiple domains and output to a JSON file:
 
 ```sh
 check-tls google.com https://github.com:443 -j report.json
 ```
 
-Human-readable output (default), or use `-j` for JSON and `-c` for CSV.
+The CLI provides human-readable output by default. Use `-j` for JSON and `-c` for CSV. When analyzing multiple domains, a progress indicator will be displayed.
 
-When analyzing several domains, the CLI now shows a small progress message for
-each domain (e.g. `🔎 [2/3] Analyzing example.com:443... done`).
+**Key Options:**
 
-**Key options:**
+- `-j, --json FILE`: Output JSON to a file (use "-" for stdout).
+- `-c, --csv FILE`: Output CSV to a file (use "-" for stdout).
+- `-P, --connect-port PORT`: Port for TLS analysis (default: 443). Overridden by port in domain/URL.
+- `-m, --mode [simple|full]`: Analysis mode. `simple` checks the leaf certificate only; `full` fetches intermediates (default).
+- `-l, --loglevel LEVEL`: Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+- `-k, --insecure`: Allow self-signed or invalid certificates.
+- `-s, --server`: Launch the web UI.
+- `-p, --port PORT`: Web server port for the UI (default: 8000).
+- `--no-transparency`: Skip certificate transparency check.
+- `--no-crl-check`: Skip CRL check.
+- `--no-ocsp-check`: Disable OCSP revocation check.
+- `--no-caa-check`: Disable DNS CAA check.
 
-- `-j, --json FILE`   Output JSON (use "-" for stdout)                                  
-- `-c, --csv FILE`    Output CSV (use "-" for stdout)
-- `-P CONNECT_PORT, --connect-port CONNECT_PORT`
-                        Port to connect to for TLS analysis (default: 443).
-                        This is overridden if port is specified in domain/URL string
-                        e.g. example.com:1234 or https://example.com:1234
-- `-k, --insecure`    Allow self-signed certs
-- `-s, --server`      Launch web UI
-- `-p, --port`        Web server port (for the UI, not for TLS connection)
-- `--no-transparency` Skip transparency check
-- `--no-crl-check`    Skip CRL check
-- `--no-ocsp-check`   Disable OCSP revocation check (enabled by default)
-- `--no-caa-check`    Disable DNS CAA check
+### Web UI
+
+To launch the interactive web interface, use the `--server` flag:
+
+```sh
+check-tls --server
+```
+
+Then, open <http://localhost:8000> in your browser.
 
 ---
 
 ## 🖥️ REST API Usage
 
-The TLS Analyzer also provides a REST API for programmatic access. By default, the web server listens on port 8000.
+The tool provides a REST API for programmatic analysis. When launched with `--server`, the API is available.
 
 ### Analyze Domains (POST /api/analyze)
 
 - **Endpoint:** `/api/analyze`
 - **Method:** `POST`
 - **Content-Type:** `application/json`
-- **Request Body:**
-  - `domains` (array of strings, required): List of domains to analyze (e.g. `["example.com", "google.com"]`)
-  - `insecure` (optional, boolean): Allow insecure (self-signed) certs
-  - `no_transparency` (optional, boolean): Skip certificate transparency check
-  - `no_crl_check` (optional, boolean): Disable CRL check
-  - `no_ocsp_check` (optional, boolean): Disable OCSP check
-  - `no_caa_check` (optional, boolean): Disable CAA check
+
+**Request Body:**
+
+- `domains` (array of strings, required): List of domains to analyze (e.g., `["example.com", "google.com:443"]`).
+- `connect_port` (integer, optional): Default port to connect to if not specified in the domain string. Defaults to 443.
+- `insecure` (boolean, optional): Allow insecure (self-signed) certificates.
+- `no_transparency` (boolean, optional): Skip certificate transparency check.
+- `no_crl_check` (boolean, optional): Disable CRL check.
+- `no_ocsp_check` (boolean,optional): Disable OCSP check.
+- `no_caa_check` (boolean, optional): Disable CAA check.
 
 #### Example curl Request
 
@@ -167,31 +205,32 @@ curl -X POST http://localhost:8000/api/analyze \
 ```json
 [
   {
-    "domain": "example.com",
+    "domain": "example.com:443",
     "status": "completed",
     "analysis_timestamp": "2025-04-26T08:30:00+00:00",
     "connection_health": { ... },
     "validation": { ... },
     "certificates": [ ... ],
     "crl_check": { ... },
-    "transparency": { ... }
-  },
-  ...
+    "transparency": { ... },
+    "ocsp_check": { ... },
+    "caa_check": { ... }
+  }
 ]
 ```
 
 ---
 
-### OCSP Status
+## OCSP Status Explained
 
 The tool provides the following OCSP statuses for the leaf certificate:
 
 - **`good`**: The certificate is valid according to its OCSP responder.
-- **`revoked`**: The certificate has been revoked according to its OCSP responder.
-- **`unknown`**: The OCSP responder replied with an "unknown" status for the certificate. This means the responder doesn't have information about the certificate's status.
-- **`error`**: An error occurred while trying to perform the OCSP check (e.g., network issue, responder unavailable, malformed response). The specific error details are usually provided.
+- **`revoked`**: The certificate has been revoked.
+- **`unknown`**: The OCSP responder does not have status information for the certificate.
+- **`error`**: An error occurred during the OCSP check (e.g., network issue, responder unavailable).
 - **`no_ocsp_url`**: The certificate does not contain an OCSP URI.
-- **`skipped`**: The OCSP check was not performed because the `--no-ocsp-check` flag was used or it was not applicable.
+- **`skipped`**: The OCSP check was disabled or not applicable.
 
 ---
 
@@ -200,121 +239,128 @@ The tool provides the following OCSP statuses for the leaf certificate:
 ![Screenshot of Web UI](screenshot_web.png)
 *Example: HTML-based interactive certificate analysis (including OCSP status)*
 
-- User-friendly web UI for interactive analysis
-- Supports all CLI options via the browser
+- User-friendly web UI for interactive analysis.
+- Supports all CLI options via the browser.
 - Great for demos, teams, and non-CLI users!
-- Includes a light/dark theme toggle
+- Includes a light/dark theme toggle.
 
 ---
 
 ## ✨ Shell Completion
 
-`check-tls` supports shell completion for bash, zsh, and fish. This helps you quickly fill in command-line options and arguments by pressing the `<Tab>` key.
-
-To enable completion, you need to add a short script to your shell's configuration file. Use the command below for your specific shell (or create a file in your shell's config directory with the appropriate content, to make it persistent across sessions):
+`check-tls` supports shell completion for bash, zsh, and fish. To enable it, add the appropriate command to your shell's configuration file (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`).
 
 **Bash:**
 
-Add the following line to your `~/.bashrc` or `~/.bash_profile`:
-
 ```sh
 eval "$(check-tls --print-completion bash)"
+```
 
 **Zsh:**
 
-Add the following line to your `~/.zshrc`:
-
 ```sh
 eval "$(check-tls --print-completion zsh)"
+```
 
 **Fish:**
 
-Add the following line to your `~/.config/fish/config.fish`:
-
 ```sh
 check-tls --print-completion fish | source
+```
 
---
+---
 
 ## 🗂️ Project Structure
+
+The project follows the standard `src` layout for packaging.
 
 ```text
 check-tls/
 ├── src/
-│   ├── main.py           # CLI entry point
-│   ├── web_server.py     # Flask web server
-│   ├── tls_checker.py    # Core logic
-│   └── utils/            # Utility modules
-│       ├── cert_utils.py
-│       ├── crl_utils.py
-│       ├── crtsh_utils.py
-│       └── __init__.py
-├── pyproject.toml
+│   └── check_tls/
+│       ├── __init__.py
+│       ├── main.py           # CLI entry point
+│       ├── tls_checker.py    # Core analysis logic
+│       ├── web_server.py     # Flask web server and API
+│       ├── static/           # CSS/JS for web UI
+│       ├── templates/        # HTML templates for web UI
+│       └── utils/            # Utility modules
+│           ├── __init__.py
+│           ├── cert_utils.py
+│           ├── crl_utils.py
+│           ├── crtsh_utils.py
+│           ├── dns_utils.py
+│           └── ocsp_utils.py
+├── pyproject.toml            # Project metadata and dependencies
 ├── Dockerfile
-├── README.md
-└── ...
+├── LICENSE
+└── README.md
 ```
 
 ---
 
 ## ❓ FAQ
 
-**Q: Can I use this tool without Python installed?**  
-A: Yes! Use the Docker image for zero local dependencies.
+**Q: What's the difference between `--port` and `--connect-port`?**  
+A: `--port` (or `-p`) specifies the port for the **web server UI** (`--server` mode). `--connect-port` (or `-P`) specifies the default port for the **TLS connection** to the target domain.
 
-**Q: How do I analyze multiple domains at once?**  
-A: Just list them: `check-tls domain1.com domain2.com ...`
+**Q: What does "No CDP" or "No OCSP URL" mean?**  
+A: This means the certificate does not contain a URL for its Certificate Revocation List (CRL) or an OCSP responder. This is common and not necessarily an error, but it prevents the tool from performing that specific revocation check.
+
+**Q: How do I analyze a server that uses a self-signed certificate?**  
+A: Use the `-k` or `--insecure` flag. This tells the tool to connect without validating the certificate against a trusted authority, which is necessary for self-signed certs.
+
+**Q: Can I use this tool without Python installed?**  
+A: Yes! The Docker image provides a self-contained environment with all dependencies. See the "With Docker" section for instructions.
 
 **Q: How do I get JSON or CSV output?**  
-A: Use `-j file.json` or `-c file.csv`. Use `-` for stdout.
-
-**Q: Is this safe for self-signed certificates?**  
-A: Use the `-k` or `--insecure` flag to allow fetching certs without validation.
-
-**Q: Can I run this as a web service?**  
-A: Yes! Use `check-tls --server` or the Docker web mode.
-
-**Q: Where are the logs?**  
-A: By default, logs print to the console. Use `-l DEBUG` for more detail.
+A: Use `-j file.json` or `-c file.csv`. Use `-` as the filename to print to standard output.
 
 ---
 
 ## 🛠️ Troubleshooting
 
-**Problem:** `ModuleNotFoundError` or import errors after moving files
+**Problem: `ssl.SSLCertVerificationError`**
 
-- **Solution:** Make sure you installed with `pip install .` from the project root, and that you run scripts via `check-tls ...` or `python -m src.main ...`.
+- **Cause:** The certificate chain could not be validated against your system's trust store. This is expected for self-signed certificates or if an intermediate certificate is missing.
+- **Solution:** If you trust the server, use the `-k` or `--insecure` flag to bypass validation. For production systems, this error indicates a misconfiguration that should be fixed.
 
-**Problem:** `ERROR: ... does not appear to be a Python project: 'pyproject.toml' not found.`
+**Problem: Connection Errors (`Connection refused`, `timed out`, `gaierror`)**
 
-- **Solution:** Ensure `pyproject.toml` is at the project root, not inside `src/`.
+- **Cause:** These are network-level issues.
+  - `Connection refused`: The server is not listening on the specified port.
+  - `timed out`: The server is unreachable, or a firewall is blocking the connection.
+  - `gaierror` or `Name or service not known`: The domain name could not be resolved by DNS.
+- **Solution:** Verify the domain name and port. Check for firewall rules and ensure the server is running and accessible from your location.
 
-**Problem:** Web server runs but browser shows error
+**Problem: `ModuleNotFoundError` or import errors.**
 
-- **Solution:** Check the logs for Python exceptions, and ensure Flask is installed.
+- **Solution:** Ensure the package was installed correctly (e.g., `pip install .`). When running from source, use `python -m check_tls.main ...`.
 
-**Problem:** Docker build fails or can't find files
+**Problem: Shell completion isn't working.**
 
-- **Solution:** Make sure your Dockerfile matches the new project structure and copies both `pyproject.toml` and the `src/` folder.
+- **Solution:** Ensure you have sourced the completion script in your shell's configuration file (`.bashrc`, `.zshrc`, etc.) and have restarted your shell. For Fish, the completion file must be placed in the correct directory.
 
-**Problem:** Can't bind to port 8000
+**Problem: Docker container exits immediately.**
 
-- **Solution:** Make sure the port is not already in use, or use `-p` to specify a different port.
+- **Cause:** You need to provide a command to the container.
+- **Solution:** Specify a domain to analyze or a flag like `--server`. For example: `docker run --rm obeoneorg/check-tls:latest example.com`.
 
 ---
 
 ## 👩‍💻 Development
 
-- All code is in `src/` (import as `from src.utils import ...`)
-- Add new features as modules in `src/` or `src/utils/`
-- Run tests and lint before submitting PRs
-- For development, use `pip install -e .` to enable editable installs.
+- All source code is located in `src/check_tls/`.
+- Imports should be relative to the package, e.g., `from check_tls.utils import ...`.
+- For development, use an editable install: `pip install -e .`. This allows you to test changes without reinstalling.
+- To run the application from source, use `python -m check_tls.main [OPTIONS]`.
+- Run tests and linting before submitting a pull request.
 
 ---
 
 ## 🤝 Contributing
 
-Pull requests are welcome! Please open an issue to discuss major changes.
+Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
 
 ---
 
@@ -326,6 +372,6 @@ MIT License © Grégoire Compagnon (obeone)
 
 ## 📦 Release & Publish
 
-To publish a new version to PyPI, push a new release to GitHub. The GitHub Actions workflow will build and publish automatically if the release tag matches the version in `pyproject.toml`.
+To publish a new version to PyPI, create a new release on GitHub. The GitHub Actions workflow will build and publish the package automatically if the release tag matches the version in `pyproject.toml`.
 
 See `.github/workflows/publish-to-pypi.yaml` for details.
