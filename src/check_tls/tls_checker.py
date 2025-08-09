@@ -37,8 +37,11 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
     logger = logging.getLogger("certcheck")
     logger.debug(f"Connecting to {domain}:{port} to fetch certificate and connection info...")
 
-    # Create SSL context, optionally ignoring verification errors if insecure is True
+    # Create SSL context and disable automatic hostname checking so we can
+    # always retrieve the certificate even when mismatched. Manual validation
+    # will be performed after the TLS handshake.
     context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+    context.check_hostname = False
 
     # Initialize connection info dictionary with default values
     conn_info = {
@@ -83,6 +86,27 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
         # Load the DER certificate into an x509 object
         cert = x509.load_der_x509_certificate(der_cert, default_backend())
+
+        # Manual hostname verification to capture detailed mismatch information
+        try:
+            cert_dict = ssock.getpeercert()
+            ssl.match_hostname(cert_dict, domain)
+        except ssl.CertificateError:
+            san_hosts = extract_san(cert)
+            cn = get_common_name(cert.subject)
+            names = san_hosts.copy()
+            if cn and cn not in names:
+                names.insert(0, cn)
+            mismatch_detail = (
+                f"Hostname mismatch: {domain} not in certificate names: "
+                f"{', '.join(names) if names else 'None'}"
+            )
+            if insecure:
+                logger.warning(mismatch_detail + " (ignored due to insecure mode)")
+            else:
+                logger.error(mismatch_detail)
+            conn_info["error"] = mismatch_detail
+
         logger.info(f"Fetched leaf certificate from {domain}")
         return cert, conn_info
 
@@ -93,29 +117,43 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         return None, conn_info
 
     except ssl.SSLCertVerificationError as e:
-        detail = f"{getattr(e, 'reason', 'Verification failed')} (verify code: {getattr(e, 'verify_code', 'N/A')}, message: {getattr(e, 'verify_message', e)})"
+        detail = (
+            f"{getattr(e, 'reason', 'Verification failed')} "
+            f"(verify code: {getattr(e, 'verify_code', 'N/A')}, message: {getattr(e, 'verify_message', e)})"
+        )
         error_msg = f"SSL certificate verification failed for {domain}: {detail}."
-        if not insecure:
-            logger.error(error_msg + " Use -k/--insecure to ignore.")
-            conn_info["error"] = error_msg
-            return None, conn_info
-        else:
-            logger.warning(f"Fetching certificate from {domain} insecurely due to verification error: {detail}")
-            try:
-                der_cert = ssock.getpeercert(binary_form=True) if ssock else None
-                if der_cert:
-                    cert = x509.load_der_x509_certificate(der_cert, default_backend())
-                    logger.info(f"Fetched leaf certificate INSECURELY from {domain}")
-                    conn_info["error"] = f"Verification failed: {detail}"
-                    return cert, conn_info
-                else:
-                    logger.error(f"No certificate received from {domain} even in insecure mode after verification error.")
-                    conn_info["error"] = error_msg + " | No cert received in insecure mode."
-                    return None, conn_info
-            except Exception as inner_e:
-                logger.error(f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}")
-                conn_info["error"] = error_msg + f" | Inner error: {inner_e}"
+        logger.error(error_msg + (" Use -k/--insecure to ignore." if not insecure else ""))
+        conn_info["error"] = error_msg
+
+        # Attempt to fetch the certificate using an unverified context to provide details
+        try:
+            alt_context = ssl._create_unverified_context()
+            alt_context.check_hostname = False
+            with socket.create_connection((domain, port), timeout=10) as tmp_sock:
+                with alt_context.wrap_socket(tmp_sock, server_hostname=domain) as tmp_ssock:
+                    der_cert = tmp_ssock.getpeercert(binary_form=True)
+            if der_cert:
+                cert = x509.load_der_x509_certificate(der_cert, default_backend())
+                san_hosts = extract_san(cert)
+                cn = get_common_name(cert.subject)
+                names = san_hosts.copy()
+                if cn and cn not in names:
+                    names.insert(0, cn)
+                names_info = f" Certificate names: {', '.join(names)}." if names else ""
+                validity_info = (
+                    f" Valid from {cert.not_valid_before_utc.isoformat()} to {cert.not_valid_after_utc.isoformat()}."
+                )
+                conn_info["error"] = error_msg + names_info + validity_info
+                return cert, conn_info
+            else:
+                conn_info["error"] = error_msg + " | No cert received in insecure fetch."
                 return None, conn_info
+        except Exception as inner_e:
+            logger.error(
+                f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}"
+            )
+            conn_info["error"] = error_msg + f" | Inner error: {inner_e}"
+            return None, conn_info
 
     except ssl.SSLError as e:
         error_msg = f"An SSL error occurred connecting to {domain}: {e}"
@@ -454,6 +492,8 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
     leaf_cert, conn_info = fetch_leaf_certificate_and_conn_info(domain, port=port, insecure=insecure)
     if conn_info:
         result["connection_health"].update(conn_info)
+        if conn_info.get("error") and not result["error_message"]:
+            result["error_message"] = conn_info["error"]
 
     if leaf_cert is None:
         fetch_error_msg = result["connection_health"].get("error", "Failed to retrieve leaf certificate.")
