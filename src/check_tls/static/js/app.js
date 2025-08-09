@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', function() {
       summaryTableBody.innerHTML += `
         <tr>
           <td data-bs-toggle="tooltip" data-bs-title="The domain name that was analyzed."><b>${r.domain || '-'}</b></td>
-          <td data-bs-toggle="tooltip" data-bs-title="The overall status of the TLS analysis for this domain.">${statusBadge(r.status)}</td>
+          <td data-bs-toggle="tooltip" data-bs-title="${r.connection_health && r.connection_health.error ? r.connection_health.error : 'The overall status of the TLS analysis for this domain.'}">${statusBadge(r.status)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Common Name (CN) of the leaf certificate.">${leaf.common_name || '-'}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Expiration date of the leaf certificate and days remaining.">${leaf.not_after ? (leaf.not_after.substring(0, 10)) : '-' }<br>
               ${expiryBadge(leaf.days_remaining ?? 0)}
@@ -151,6 +151,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const leaf = (result.certificates || []).find(c => c.chain_index === 0 && !c.error) || {};
     const transparencyDetailsHtml = renderTransparencyDetailsTable(result.transparency, idx);
     const caaDetailsHtml = renderCaaDetails(result.caa_check, idx);
+    const connectionError = result.connection_health && result.connection_health.error;
     // Quick info
     // Determine CSS class for expiry text/badge based on days remaining
     // expired: Certificate has expired (days < 0)
@@ -195,6 +196,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
         <!-- Alerts -->
         ${result.error_message ? `<div class="alert alert-danger mt-2"><b>Overall Status:</b> ${result.error_message}</div>` : ""}
+        ${(connectionError && connectionError !== result.error_message) ? `<div class="alert alert-danger mt-2"><b>Connection:</b> ${connectionError}</div>` : ""}
         <!-- Accordion details -->
         <div class="accordion mt-4" id="accordion-${idx}">
           <div class="accordion-item">

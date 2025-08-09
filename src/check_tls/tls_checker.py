@@ -37,8 +37,11 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
     logger = logging.getLogger("certcheck")
     logger.debug(f"Connecting to {domain}:{port} to fetch certificate and connection info...")
 
-    # Create SSL context, optionally ignoring verification errors if insecure is True
+    # Create SSL context and disable automatic hostname checking so we can
+    # always retrieve the certificate even when mismatched. Manual validation
+    # will be performed after the TLS handshake.
     context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+    context.check_hostname = False
 
     # Initialize connection info dictionary with default values
     conn_info = {
@@ -83,6 +86,31 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
         # Load the DER certificate into an x509 object
         cert = x509.load_der_x509_certificate(der_cert, default_backend())
+
+        # Manual hostname verification to capture detailed mismatch information
+        ssock.getpeercert()
+        san_hosts = extract_san(cert)
+        cn = get_common_name(cert.subject)
+        names = san_hosts.copy()
+        if cn and cn not in names:
+            names.insert(0, cn)
+        # Use internal _dnsname_match for wildcard support similar to match_hostname
+        from ssl import _dnsname_match
+        if not any(_dnsname_match(domain, name) for name in names):
+            validity_info = (
+                f" Valid from {cert.not_valid_before_utc.isoformat()}"
+                f" to {cert.not_valid_after_utc.isoformat()}."
+            )
+            mismatch_detail = (
+                f"Hostname mismatch: {domain} not in certificate names: "
+                f"{', '.join(names) if names else 'None'}." + validity_info
+            )
+            if insecure:
+                logger.warning(mismatch_detail + " (ignored due to insecure mode)")
+            else:
+                logger.error(mismatch_detail)
+            conn_info["error"] = mismatch_detail
+
         logger.info(f"Fetched leaf certificate from {domain}")
         return cert, conn_info
 
@@ -93,28 +121,43 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         return None, conn_info
 
     except ssl.SSLCertVerificationError as e:
-        error_msg = f"SSL certificate verification failed for {domain}: {e}."
-        if not insecure:
-            logger.error(error_msg + " Use -k/--insecure to ignore.")
-            conn_info["error"] = error_msg
-            return None, conn_info
-        else:
-            logger.warning(f"Fetching certificate from {domain} insecurely due to verification error: {e}")
-            try:
-                der_cert = ssock.getpeercert(binary_form=True) if ssock else None
-                if der_cert:
-                    cert = x509.load_der_x509_certificate(der_cert, default_backend())
-                    logger.info(f"Fetched leaf certificate INSECURELY from {domain}")
-                    conn_info["error"] = f"Verification failed: {e}"
-                    return cert, conn_info
-                else:
-                    logger.error(f"No certificate received from {domain} even in insecure mode after verification error.")
-                    conn_info["error"] = error_msg + " | No cert received in insecure mode."
-                    return None, conn_info
-            except Exception as inner_e:
-                logger.error(f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}")
-                conn_info["error"] = error_msg + f" | Inner error: {inner_e}"
+        detail = (
+            f"{getattr(e, 'reason', 'Verification failed')} "
+            f"(verify code: {getattr(e, 'verify_code', 'N/A')}, message: {getattr(e, 'verify_message', e)})"
+        )
+        error_msg = f"SSL certificate verification failed for {domain}: {detail}."
+        logger.error(error_msg + (" Use -k/--insecure to ignore." if not insecure else ""))
+        conn_info["error"] = error_msg
+
+        # Attempt to fetch the certificate using an unverified context to provide details
+        try:
+            alt_context = ssl._create_unverified_context()
+            alt_context.check_hostname = False
+            with socket.create_connection((domain, port), timeout=10) as tmp_sock:
+                with alt_context.wrap_socket(tmp_sock, server_hostname=domain) as tmp_ssock:
+                    der_cert = tmp_ssock.getpeercert(binary_form=True)
+            if der_cert:
+                cert = x509.load_der_x509_certificate(der_cert, default_backend())
+                san_hosts = extract_san(cert)
+                cn = get_common_name(cert.subject)
+                names = san_hosts.copy()
+                if cn and cn not in names:
+                    names.insert(0, cn)
+                names_info = f" Certificate names: {', '.join(names)}." if names else ""
+                validity_info = (
+                    f" Valid from {cert.not_valid_before_utc.isoformat()} to {cert.not_valid_after_utc.isoformat()}."
+                )
+                conn_info["error"] = error_msg + names_info + validity_info
+                return cert, conn_info
+            else:
+                conn_info["error"] = error_msg + " | No cert received in insecure fetch."
                 return None, conn_info
+        except Exception as inner_e:
+            logger.error(
+                f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}"
+            )
+            conn_info["error"] = error_msg + f" | Inner error: {inner_e}"
+            return None, conn_info
 
     except ssl.SSLError as e:
         error_msg = f"An SSL error occurred connecting to {domain}: {e}"
@@ -246,46 +289,55 @@ def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certifi
 
     return intermediates
 
-def validate_certificate_chain(domain: str, port: int = 443) -> bool:
+def validate_certificate_chain(domain: str, port: int = 443) -> Tuple[bool, Optional[str]]:
     """
     Validate the certificate chain of a domain against the system's trust store.
 
-    Parameters:
+    Args:
         domain (str): The domain to validate.
         port (int): The port to connect to for validation.
 
     Returns:
-        bool: True if validation is successful, False otherwise.
+        Tuple[bool, Optional[str]]: A tuple containing a boolean indicating success and
+        an optional error message with details when validation fails.
     """
     logger = logging.getLogger("certcheck")
     try:
         context = ssl.create_default_context()
         with socket.create_connection((domain, port), timeout=10) as sock:
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
-                ssock.getpeercert() # This implicitly validates the chain
+                ssock.getpeercert()  # This implicitly validates the chain
         logger.info(f"SSL validation using system trust store OK for {domain}:{port}")
-        return True
+        return True, None
     except ssl.SSLCertVerificationError as e:
-        logger.warning(f"SSL validation FAILED for {domain}:{port} using system trust store: {e.reason} (Verify code: {e.verify_code}, Message: {e.verify_message})")
-        return False
+        detail = f"{e.reason} (verify code: {e.verify_code}, message: {e.verify_message})"
+        logger.warning(
+            f"SSL validation FAILED for {domain}:{port} using system trust store: {detail}"
+        )
+        return False, detail
     except ssl.SSLError as e:
         logger.warning(f"SSL validation FAILED for {domain}:{port} due to SSL error: {e}")
-        return False
+        return False, str(e)
     except socket.timeout:
-        logger.warning(f"SSL validation FAILED for {domain}:{port}: Connection timed out.")
-        return False
+        msg = "Connection timed out."
+        logger.warning(f"SSL validation FAILED for {domain}:{port}: {msg}")
+        return False, msg
     except socket.gaierror:
-        logger.error(f"SSL validation FAILED for {domain}:{port}: Could not resolve domain name.")
-        return False
+        msg = "Could not resolve domain name."
+        logger.error(f"SSL validation FAILED for {domain}:{port}: {msg}")
+        return False, msg
     except ConnectionRefusedError:
-        logger.error(f"SSL validation FAILED for {domain}:{port}: Connection refused.")
-        return False
+        msg = "Connection refused."
+        logger.error(f"SSL validation FAILED for {domain}:{port}: {msg}")
+        return False, msg
     except OSError as e:
-        logger.error(f"SSL validation FAILED for {domain}:{port}: Network/OS error: {e}")
-        return False
+        msg = f"Network/OS error: {e}"
+        logger.error(f"SSL validation FAILED for {domain}:{port}: {msg}")
+        return False, msg
     except Exception as e:
-        logger.error(f"SSL validation FAILED for {domain}:{port}: Unexpected connection error: {e}")
-        return False
+        msg = f"Unexpected connection error: {e}"
+        logger.error(f"SSL validation FAILED for {domain}:{port}: {msg}")
+        return False, msg
 
 def detect_profile(cert: x509.Certificate) -> str:
     """
@@ -444,6 +496,8 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
     leaf_cert, conn_info = fetch_leaf_certificate_and_conn_info(domain, port=port, insecure=insecure)
     if conn_info:
         result["connection_health"].update(conn_info)
+        if conn_info.get("error") and not result["error_message"]:
+            result["error_message"] = conn_info["error"]
 
     if leaf_cert is None:
         fetch_error_msg = result["connection_health"].get("error", "Failed to retrieve leaf certificate.")
@@ -454,9 +508,13 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
 
     logger.info(f"Validating chain against system trust store for {domain}:{port}...")
     try:
-        result["validation"]["system_trust_store"] = validate_certificate_chain(domain, port=port)
-        if not result["validation"]["system_trust_store"] and not result["error_message"]:
-            result["error_message"] = f"System validation failed for {domain}:{port}."
+        is_valid, val_error = validate_certificate_chain(domain, port=port)
+        result["validation"]["system_trust_store"] = is_valid
+        if val_error:
+            result["validation"]["error"] = val_error
+        if not is_valid and not result["error_message"]:
+            msg = val_error or "Validation failed"
+            result["error_message"] = f"System validation failed for {domain}:{port}: {msg}"
     except Exception as e:
         logger.error(f"Error during system trust validation for {domain}:{port}: {e}")
         result["validation"]["error"] = str(e)
