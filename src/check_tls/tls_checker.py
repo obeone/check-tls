@@ -88,18 +88,22 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         cert = x509.load_der_x509_certificate(der_cert, default_backend())
 
         # Manual hostname verification to capture detailed mismatch information
-        try:
-            cert_dict = ssock.getpeercert()
-            ssl.match_hostname(cert_dict, domain)
-        except ssl.CertificateError:
-            san_hosts = extract_san(cert)
-            cn = get_common_name(cert.subject)
-            names = san_hosts.copy()
-            if cn and cn not in names:
-                names.insert(0, cn)
+        ssock.getpeercert()
+        san_hosts = extract_san(cert)
+        cn = get_common_name(cert.subject)
+        names = san_hosts.copy()
+        if cn and cn not in names:
+            names.insert(0, cn)
+        # Use internal _dnsname_match for wildcard support similar to match_hostname
+        from ssl import _dnsname_match
+        if not any(_dnsname_match(domain, name) for name in names):
+            validity_info = (
+                f" Valid from {cert.not_valid_before_utc.isoformat()}"
+                f" to {cert.not_valid_after_utc.isoformat()}."
+            )
             mismatch_detail = (
                 f"Hostname mismatch: {domain} not in certificate names: "
-                f"{', '.join(names) if names else 'None'}"
+                f"{', '.join(names) if names else 'None'}." + validity_info
             )
             if insecure:
                 logger.warning(mismatch_detail + " (ignored due to insecure mode)")
