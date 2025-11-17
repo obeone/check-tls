@@ -13,11 +13,13 @@ from check_tls.utils.cert_utils import *
 from check_tls.utils.crl_utils import *
 from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
+from check_tls.utils.security_utils import validate_host_for_connection
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID, AuthorityInformationAccessOID
 import urllib.request
 import json
+import os
 
 
 def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
@@ -57,6 +59,17 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         context.minimum_version = ssl.TLSVersion.TLSv1_2
     except AttributeError:
         logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
+
+    # Security validation: Check if the host resolves to private/internal IPs
+    # This prevents SSRF attacks by blocking connections to internal networks
+    # Set ALLOW_INTERNAL_IPS=true environment variable to disable this protection
+    allow_private = os.getenv('ALLOW_INTERNAL_IPS', 'false').lower() == 'true'
+    is_valid, validation_error = validate_host_for_connection(domain, port, allow_private_ips=allow_private)
+
+    if not is_valid:
+        logger.error(f"Security validation failed for {domain}:{port}: {validation_error}")
+        conn_info["error"] = validation_error
+        return None, conn_info
 
     sock = None
     ssock = None
