@@ -26,6 +26,18 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  // Helper to escape HTML and prevent XSS attacks
+  function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '-';
+    if (typeof unsafe !== 'string') unsafe = String(unsafe);
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   // Helper for status badge/icon
   function statusBadge(status) {
     if (status === 'completed')   return '<span class="badge badge-ok">✔️ Completed</span>';
@@ -115,14 +127,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
       summaryTableBody.innerHTML += `
         <tr>
-          <td data-bs-toggle="tooltip" data-bs-title="The domain name that was analyzed."><b>${r.domain || '-'}</b></td>
-          <td data-bs-toggle="tooltip" data-bs-title="${r.connection_health && r.connection_health.error ? r.connection_health.error : 'The overall status of the TLS analysis for this domain.'}">${statusBadge(r.status)}</td>
-          <td data-bs-toggle="tooltip" data-bs-title="Common Name (CN) of the leaf certificate.">${leaf.common_name || '-'}</td>
-          <td data-bs-toggle="tooltip" data-bs-title="Expiration date of the leaf certificate and days remaining.">${leaf.not_after ? (leaf.not_after.substring(0, 10)) : '-' }<br>
+          <td data-bs-toggle="tooltip" data-bs-title="The domain name that was analyzed."><b>${escapeHtml(r.domain)}</b></td>
+          <td data-bs-toggle="tooltip" data-bs-title="${escapeHtml(r.connection_health && r.connection_health.error ? r.connection_health.error : 'The overall status of the TLS analysis for this domain.')}">${statusBadge(r.status)}</td>
+          <td data-bs-toggle="tooltip" data-bs-title="Common Name (CN) of the leaf certificate.">${escapeHtml(leaf.common_name)}</td>
+          <td data-bs-toggle="tooltip" data-bs-title="Expiration date of the leaf certificate and days remaining.">${escapeHtml(leaf.not_after ? (leaf.not_after.substring(0, 10)) : '-')}<br>
               ${expiryBadge(leaf.days_remaining ?? 0)}
           </td>
-          <td data-bs-toggle="tooltip" data-bs-title="Issuer of the leaf certificate.">${leaf.issuer || '-'}</td>
-          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${displayTlsVersion(r.connection_health && r.connection_health.tls_version)}
+          <td data-bs-toggle="tooltip" data-bs-title="Issuer of the leaf certificate.">${escapeHtml(leaf.issuer)}</td>
+          <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${escapeHtml(displayTlsVersion(r.connection_health && r.connection_health.tls_version))}
               ${tls13Badge(r.connection_health && r.connection_health.supports_tls13)}
           </td>
           <td data-bs-toggle="tooltip" data-bs-title="Certificate Revocation List (CRL) check status for the leaf certificate.">${crlBadge(r.crl_check)}</td>
@@ -167,36 +179,36 @@ document.addEventListener('DOMContentLoaded', function() {
     card.innerHTML = `
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
-          <span class="fw-bold fs-5" data-bs-toggle="tooltip" data-bs-title="The domain name that was analyzed.">${result.domain || '-'}</span>
+          <span class="fw-bold fs-5" data-bs-toggle="tooltip" data-bs-title="The domain name that was analyzed.">${escapeHtml(result.domain)}</span>
           ${statusBadge(result.status)}
         </div>
-        <div class="text-muted small" data-bs-toggle="tooltip" data-bs-title="Timestamp of when the analysis was performed.">Analysis Time: ${result.analysis_timestamp || 'N/A'}</div>
+        <div class="text-muted small" data-bs-toggle="tooltip" data-bs-title="Timestamp of when the analysis was performed.">Analysis Time: ${escapeHtml(result.analysis_timestamp)}</div>
       </div>
       <div class="card-body">
         <!-- Synthesis row -->
         <div class="row align-items-center g-3 pb-3 border-bottom mb-3">
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="Common Name (CN) of the leaf certificate.">
             <span class="fw-semibold text-muted">CN:</span><br>
-            <span class="fs-6">${leaf.common_name || '-'}</span>
+            <span class="fs-6">${escapeHtml(leaf.common_name)}</span>
           </div>
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="Expiration date of the leaf certificate and days remaining.">
             <span class="fw-semibold text-muted">Expires:</span><br>
-            <span class="fs-6 ${daysClass}">${leaf.not_after ? leaf.not_after.substring(0, 10) : '-'}</span>
+            <span class="fs-6 ${daysClass}">${escapeHtml(leaf.not_after ? leaf.not_after.substring(0, 10) : '-')}</span>
             <span class="badge ms-2 ${daysClass}">${leaf.days_remaining ?? '?'}d</span>
           </div>
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="Issuer of the leaf certificate.">
             <span class="fw-semibold text-muted">Issuer:</span><br>
-            <span class="fs-6">${leaf.issuer || '-'}</span>
+            <span class="fs-6">${escapeHtml(leaf.issuer)}</span>
           </div>
           <div class="col-6 col-md-3" data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">
             <span class="fw-semibold text-muted">TLS:</span><br>
-            <span class="fs-6">${displayTlsVersion(result.connection_health && result.connection_health.tls_version)}</span>
+            <span class="fs-6">${escapeHtml(displayTlsVersion(result.connection_health && result.connection_health.tls_version))}</span>
             ${tls13Badge(result.connection_health && result.connection_health.supports_tls13)}
           </div>
         </div>
         <!-- Alerts -->
-        ${result.error_message ? `<div class="alert alert-danger mt-2"><b>Overall Status:</b> ${result.error_message}</div>` : ""}
-        ${(connectionError && connectionError !== result.error_message) ? `<div class="alert alert-danger mt-2"><b>Connection:</b> ${connectionError}</div>` : ""}
+        ${result.error_message ? `<div class="alert alert-danger mt-2"><b>Overall Status:</b> ${escapeHtml(result.error_message)}</div>` : ""}
+        ${(connectionError && connectionError !== result.error_message) ? `<div class="alert alert-danger mt-2"><b>Connection:</b> ${escapeHtml(connectionError)}</div>` : ""}
         <!-- Accordion details -->
         <div class="accordion mt-4" id="accordion-${idx}">
           <div class="accordion-item">
@@ -258,7 +270,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         tableRows += `
           <tr>
-            <td>${domain}</td>
+            <td>${escapeHtml(domain)}</td>
             <td class="text-center">${statusBadge}</td>
             <td class="text-center">${crtshLink}</td>
           </tr>`;
@@ -272,7 +284,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 : '-';
             tableRows += `
               <tr>
-                <td>${domain}</td>
+                <td>${escapeHtml(domain)}</td>
                 <td class="text-center"><span class="badge bg-warning">Not Defined</span></td>
                 <td class="text-center">${crtshLink}</td>
               </tr>`;
@@ -339,7 +351,7 @@ document.addEventListener('DOMContentLoaded', function() {
           </h2>
           <div id="collapse-caa-${parentIdx}" class="accordion-collapse collapse" aria-labelledby="heading-caa-${parentIdx}">
             <div class="accordion-body">
-              <div class="alert alert-danger">${caaData.error}</div>
+              <div class="alert alert-danger">${escapeHtml(caaData.error)}</div>
             </div>
           </div>
         </div>`;
@@ -348,7 +360,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let rows = '';
     if (Array.isArray(caaData.records)) {
       caaData.records.forEach(r => {
-        rows += `<tr><td>${r.flags}</td><td>${r.tag}</td><td>${r.value}</td></tr>`;
+        rows += `<tr><td>${escapeHtml(r.flags)}</td><td>${escapeHtml(r.tag)}</td><td>${escapeHtml(r.value)}</td></tr>`;
       });
     }
     const table = rows ? `<table class="table table-sm table-bordered"><thead><tr><th>Flags</th><th>Tag</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="text-muted">No CAA records found.</p>';
@@ -379,19 +391,19 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!certs.length) return `<div class="alert alert-warning">No certificate data available.</div>`;
     return certs.map((cert, i) => `
       <h6 class="mt-3 mb-2">Certificate #${i+1} ${cert.chain_index===0 ? '(Leaf)' : (cert.is_ca ? '(CA/Intermediate)' : '(Intermediate)')}</h6>
-      ${cert.error ? `<div class="alert alert-danger">${cert.error}</div>` : `
+      ${cert.error ? `<div class="alert alert-danger">${escapeHtml(cert.error)}</div>` : `
       <table class="table table-sm table-bordered mb-3">
-        <tr><th>Subject</th>${tdWithTooltip(cert.subject || '-', "The distinguished name (DN) of the entity to whom the certificate is issued.")}</tr>
-        <tr><th>Issuer</th>${tdWithTooltip(cert.issuer || '-', "The distinguished name (DN) of the entity that signed and issued the certificate.")}</tr>
-        <tr><th>Common Name</th>${tdWithTooltip(cert.common_name || '-', "The primary common name (CN) of the certificate, typically the domain name for SSL/TLS certificates.")}</tr>
-        <tr><th>Serial</th>${tdWithTooltip(cert.serial_number || '-', "A unique serial number assigned to the certificate by the issuing Certificate Authority (CA).")}</tr>
-        <tr><th>Validity</th>${tdWithTooltip(`${cert.not_before || '-'} → ${cert.not_after || '-'}<br><span class="${cert.days_remaining < 0 ? 'days-remaining-critical' : cert.days_remaining < 10 ? 'days-remaining-warning' : 'days-remaining-ok'}">${cert.days_remaining ?? '?'} days left</span>`, "The period during which the certificate is considered valid, defined by 'Not Before' and 'Not After' dates.")}</tr>
-        <tr><th>Key</th>${tdWithTooltip(`${cert.public_key_algorithm || '-'} (${cert.public_key_size_bits || '?'} bits)`, "Information about the public key, including its algorithm (e.g., RSA, ECC) and size in bits.")}</tr>
-        <tr><th>Signature Algo</th>${tdWithTooltip(cert.signature_algorithm || '-', "The algorithm used by the Certificate Authority (CA) to sign the certificate.")}</tr>
-        <tr><th>SHA256 FP</th>${tdWithTooltip(`<span class="fingerprint">${cert.sha256_fingerprint || '-'}</span>`, "The SHA-256 fingerprint (hash) of the certificate, used to verify its integrity.")}</tr>
-        <tr><th>Profile</th>${tdWithTooltip(cert.profile || '-', "Indicates the certificate profile or type, e.g., DV (Domain Validated), OV (Organization Validated), EV (Extended Validation).")}</tr>
+        <tr><th>Subject</th>${tdWithTooltip(escapeHtml(cert.subject), "The distinguished name (DN) of the entity to whom the certificate is issued.")}</tr>
+        <tr><th>Issuer</th>${tdWithTooltip(escapeHtml(cert.issuer), "The distinguished name (DN) of the entity that signed and issued the certificate.")}</tr>
+        <tr><th>Common Name</th>${tdWithTooltip(escapeHtml(cert.common_name), "The primary common name (CN) of the certificate, typically the domain name for SSL/TLS certificates.")}</tr>
+        <tr><th>Serial</th>${tdWithTooltip(escapeHtml(cert.serial_number), "A unique serial number assigned to the certificate by the issuing Certificate Authority (CA).")}</tr>
+        <tr><th>Validity</th>${tdWithTooltip(`${escapeHtml(cert.not_before)} → ${escapeHtml(cert.not_after)}<br><span class="${cert.days_remaining < 0 ? 'days-remaining-critical' : cert.days_remaining < 10 ? 'days-remaining-warning' : 'days-remaining-ok'}">${cert.days_remaining ?? '?'} days left</span>`, "The period during which the certificate is considered valid, defined by 'Not Before' and 'Not After' dates.")}</tr>
+        <tr><th>Key</th>${tdWithTooltip(`${escapeHtml(cert.public_key_algorithm)} (${cert.public_key_size_bits || '?'} bits)`, "Information about the public key, including its algorithm (e.g., RSA, ECC) and size in bits.")}</tr>
+        <tr><th>Signature Algo</th>${tdWithTooltip(escapeHtml(cert.signature_algorithm), "The algorithm used by the Certificate Authority (CA) to sign the certificate.")}</tr>
+        <tr><th>SHA256 FP</th>${tdWithTooltip(`<span class="fingerprint">${escapeHtml(cert.sha256_fingerprint)}</span>`, "The SHA-256 fingerprint (hash) of the certificate, used to verify its integrity.")}</tr>
+        <tr><th>Profile</th>${tdWithTooltip(escapeHtml(cert.profile), "Indicates the certificate profile or type, e.g., DV (Domain Validated), OV (Organization Validated), EV (Extended Validation).")}</tr>
         <tr><th>Is CA</th>${tdWithTooltip(cert.is_ca ? 'Yes' : 'No', "Indicates if this certificate is a Certificate Authority (CA) certificate, meaning it can sign other certificates.")}</tr>
-        <tr><th>SANs</th>${tdWithTooltip((cert.san || []).join(', ') || '-', "Subject Alternative Names (SANs) are additional hostnames covered by this SSL certificate.")}</tr>
+        <tr><th>SANs</th>${tdWithTooltip(escapeHtml((cert.san || []).join(', ')), "Subject Alternative Names (SANs) are additional hostnames covered by this SSL certificate.")}</tr>
       </table>
       `}
     `).join('');
@@ -512,7 +524,7 @@ document.addEventListener('DOMContentLoaded', function() {
     .catch(error => {
       loadingSpinner.style.display = 'none';
       summaryTableWrapper.style.display = 'none';
-      resultsDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${error.message || error}</div>`;
+      resultsDiv.innerHTML = `<div class="alert alert-danger"><strong>Error:</strong> ${escapeHtml(error.message || error)}</div>`;
     });
   });
 });
