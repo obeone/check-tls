@@ -17,7 +17,7 @@ Server-Side Request Forgery (SSRF) is a vulnerability where an attacker can make
 
 ### Protection Mechanisms
 
-Starting from version 2.x, `check-tls` includes built-in SSRF protection that blocks connections to private and internal IP addresses.
+Starting from version 1.8.0, `check-tls` includes built-in SSRF protection that blocks connections to private and internal IP addresses.
 
 #### Blocked IP Ranges
 
@@ -123,7 +123,7 @@ We will respond within 48 hours and work with you to address the issue.
 
 ## Security Changelog
 
-### Version 2.x (2025)
+### Version 1.8.0 (2025)
 - Added SSRF protection with IP blocklist validation
 - Added XSS protection with HTML escaping in web interface
 - Added `ALLOW_INTERNAL_IPS` environment variable for controlled bypass

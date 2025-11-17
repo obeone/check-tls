@@ -29,6 +29,9 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
       - [Example JSON Response](#example-json-response)
   - [OCSP Status Explained](#ocsp-status-explained)
   - [🌐 Web Interface](#-web-interface)
+  - [🔒 Security](#-security)
+    - [SSRF Protection](#ssrf-protection)
+    - [Analyzing Internal Hosts](#analyzing-internal-hosts)
   - [✨ Shell Completion](#-shell-completion)
   - [🗂️ Project Structure](#️-project-structure)
   - [❓ FAQ](#-faq)
@@ -246,6 +249,47 @@ The tool provides the following OCSP statuses for the leaf certificate:
 
 ---
 
+## 🔒 Security
+
+### SSRF Protection
+
+Starting from version 1.8.0, `check-tls` includes built-in protection against Server-Side Request Forgery (SSRF) attacks. By default, the tool blocks connections to private and internal IP addresses to prevent malicious users from:
+
+- Scanning internal network ports
+- Accessing internal services
+- Enumerating private infrastructure
+
+**Blocked IP Ranges:**
+
+- Private networks: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
+- Loopback: `127.0.0.0/8`
+- Link-local: `169.254.0.0/16`
+- And other reserved ranges (see `SECURITY.md` for complete list)
+
+### Analyzing Internal Hosts
+
+For legitimate internal network analysis (e.g., in development or private infrastructure), you can disable SSRF protection using the `ALLOW_INTERNAL_IPS` environment variable:
+
+```sh
+# Allow analysis of internal IPs
+export ALLOW_INTERNAL_IPS=true
+check-tls 192.168.1.1
+
+# Or inline for a single command
+ALLOW_INTERNAL_IPS=true check-tls 10.0.0.50:8443
+
+# For the web server
+ALLOW_INTERNAL_IPS=true check-tls --server
+```
+
+**⚠️ Security Warning:**
+
+- **Never** set `ALLOW_INTERNAL_IPS=true` in production environments
+- Only use this in trusted, isolated development/testing environments
+- See `SECURITY.md` for detailed security documentation and best practices
+
+---
+
 ## ✨ Shell Completion
 
 `check-tls` supports shell completion for bash, zsh, and fish. To enable it, add the appropriate command to your shell's configuration file (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`).
@@ -313,8 +357,14 @@ A: Use the `-k` or `--insecure` flag. This tells the tool to connect without val
 **Q: Can I use this tool without Python installed?**  
 A: Yes! The Docker image provides a self-contained environment with all dependencies. See the "With Docker" section for instructions.
 
-**Q: How do I get JSON or CSV output?**  
+**Q: How do I get JSON or CSV output?**
 A: Use `-j file.json` or `-c file.csv`. Use `-` as the filename to print to standard output.
+
+**Q: Can I analyze internal/private IP addresses?**
+A: By default, `check-tls` blocks connections to private IP ranges (192.168.x.x, 10.x.x.x, etc.) for security reasons. To analyze internal hosts in development/testing environments, use: `ALLOW_INTERNAL_IPS=true check-tls 192.168.1.1`. **Never use this in production!** See the Security section for more details.
+
+**Q: Why am I getting "Blocked connection to private/internal IP" errors?**
+A: This is the built-in SSRF protection. If you need to analyze internal hosts (e.g., in a development environment), use the `ALLOW_INTERNAL_IPS=true` environment variable. See the Security section for details and warnings.
 
 ---
 
