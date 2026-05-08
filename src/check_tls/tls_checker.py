@@ -809,7 +809,10 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
         )
         return analysis_result
 
-    with ThreadPoolExecutor() as executor:
+    # Cap concurrency to avoid spawning hundreds of threads (and hammering
+    # OCSP/CRL/crt.sh) when many domains are passed in.
+    max_workers = max(1, min(16, len(domains_input)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = list(executor.map(process_domain, domains_input))
 
     overall_end_time = datetime.datetime.now(timezone.utc)
