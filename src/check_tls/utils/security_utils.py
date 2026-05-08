@@ -6,9 +6,13 @@ Provides functions to validate domains and IP addresses before making connection
 """
 
 import ipaddress
+import os
 import socket
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
+from urllib.parse import urljoin, urlparse
+
+import requests
 
 
 # Private/internal IP ranges that should be blocked to prevent SSRF attacks
@@ -172,3 +176,203 @@ def is_port_allowed(port: int, allowed_ports: Optional[set] = None) -> Tuple[boo
         return True, None
     else:
         return False, f"Port {port} is not in the allowed list: {sorted(allowed_ports)}"
+
+
+# Default User-Agent applied to safe_http_fetch when callers do not override it.
+_DEFAULT_USER_AGENT = "Python-CertCheck/1.3"
+
+# Schemes that safe_http_fetch is allowed to dispatch.
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+
+def _allow_internal_ips_from_env() -> bool:
+    """
+    Read the ``ALLOW_INTERNAL_IPS`` environment variable.
+
+    Returns
+    -------
+    bool
+        ``True`` when the environment variable is set to ``"true"``
+        (case-insensitive), ``False`` otherwise. Defaults to ``False``
+        so SSRF protection is the default posture.
+    """
+    return os.getenv("ALLOW_INTERNAL_IPS", "false").lower() == "true"
+
+
+def safe_http_fetch(
+    url: str,
+    *,
+    method: str = "GET",
+    data: Optional[bytes] = None,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 10.0,
+    max_redirects: int = 5,
+) -> Optional[requests.Response]:
+    """
+    Issue an HTTP(S) request with per-hop SSRF validation and manual redirect handling.
+
+    The function performs the following checks before each network hop
+    (initial URL plus every redirect target) to prevent SSRF attacks
+    that abuse 3xx responses to pivot to internal addresses:
+
+    * the URL must use the ``http`` or ``https`` scheme;
+    * the host must pass :func:`validate_host_for_connection`, honoring
+      the ``ALLOW_INTERNAL_IPS`` environment variable;
+    * automatic redirect following provided by :mod:`requests` is
+      disabled — redirects are followed manually up to ``max_redirects``
+      hops, with the same validation re-applied for each ``Location``.
+
+    Any failure (validation, transport error, non-2xx after redirects,
+    too many redirects, malformed redirect target) results in ``None``,
+    so call sites can keep treating fetch failures as soft errors —
+    matching the previous behavior of the migrated callers.
+
+    Parameters
+    ----------
+    url : str
+        The absolute URL to fetch. Must use ``http`` or ``https``.
+    method : str, optional
+        HTTP method to use. Only ``"GET"`` and ``"POST"`` are expected
+        by the current callers; other methods are passed through to
+        :mod:`requests` unchanged. Defaults to ``"GET"``.
+    data : bytes, optional
+        Optional request body, forwarded as-is to :mod:`requests`.
+    headers : dict[str, str], optional
+        Optional HTTP headers. A default ``User-Agent`` is added when
+        the caller does not provide one.
+    timeout : float, optional
+        Per-request timeout in seconds, applied to every hop.
+        Defaults to ``10.0``.
+    max_redirects : int, optional
+        Maximum number of 3xx hops to follow. Defaults to ``5``.
+
+    Returns
+    -------
+    requests.Response or None
+        The successful response on the final hop, or ``None`` when any
+        hop is rejected, errors out, or the chain exceeds
+        ``max_redirects``.
+
+    Examples
+    --------
+    >>> # Block direct connection to a private IP
+    >>> safe_http_fetch("http://127.0.0.1/")  # doctest: +SKIP
+    None
+
+    >>> # Reject non-HTTP schemes outright
+    >>> safe_http_fetch("file:///etc/passwd")  # doctest: +SKIP
+    None
+    """
+    logger = logging.getLogger("certcheck")
+
+    # Normalize headers and apply a default User-Agent so call sites
+    # do not need to repeat it; preserve any caller-provided override.
+    request_headers: Dict[str, str] = dict(headers or {})
+    if not any(name.lower() == "user-agent" for name in request_headers):
+        request_headers["User-Agent"] = _DEFAULT_USER_AGENT
+
+    allow_private = _allow_internal_ips_from_env()
+    method_upper = method.upper()
+    current_url = url
+
+    for hop in range(max_redirects + 1):
+        parsed = urlparse(current_url)
+        if parsed.scheme not in _ALLOWED_SCHEMES:
+            logger.warning(
+                "safe_http_fetch: refusing non-HTTP(S) URL '%s' (scheme=%r)",
+                current_url,
+                parsed.scheme,
+            )
+            return None
+
+        host = parsed.hostname
+        if not host:
+            logger.warning("safe_http_fetch: URL '%s' has no hostname", current_url)
+            return None
+
+        # Determine the effective port for the validation step. Fall back
+        # to the scheme default when the URL does not pin one explicitly.
+        try:
+            port = parsed.port if parsed.port is not None else (
+                443 if parsed.scheme == "https" else 80
+            )
+        except ValueError:
+            logger.warning("safe_http_fetch: URL '%s' has an invalid port", current_url)
+            return None
+
+        is_valid, validation_error = validate_host_for_connection(
+            host, port, allow_private_ips=allow_private
+        )
+        if not is_valid:
+            logger.warning(
+                "safe_http_fetch: blocked %s '%s' - %s",
+                "redirect to" if hop > 0 else "request to",
+                current_url,
+                validation_error,
+            )
+            return None
+
+        try:
+            response = requests.request(
+                method_upper,
+                current_url,
+                data=data,
+                headers=request_headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+        except requests.exceptions.RequestException as exc:
+            logger.warning(
+                "safe_http_fetch: transport error fetching '%s': %s",
+                current_url,
+                exc,
+            )
+            return None
+
+        # Follow 3xx redirects manually so we can re-validate each hop.
+        if response.is_redirect or response.status_code in (301, 302, 303, 307, 308):
+            location = response.headers.get("Location")
+            if not location:
+                logger.warning(
+                    "safe_http_fetch: %s response from '%s' had no Location header",
+                    response.status_code,
+                    current_url,
+                )
+                return None
+
+            # Resolve relative redirects against the current URL.
+            next_url = urljoin(current_url, location)
+            logger.debug(
+                "safe_http_fetch: redirect %s -> '%s' (hop %d)",
+                response.status_code,
+                next_url,
+                hop + 1,
+            )
+
+            # RFC 7231: 303 forces GET; 301/302 historically behave the
+            # same way for cross-method redirects in the wild. 307/308
+            # preserve method and body. We err on the safe side and only
+            # preserve method/body for 307/308.
+            if response.status_code in (301, 302, 303):
+                method_upper = "GET"
+                data = None
+
+            current_url = next_url
+            continue
+
+        if not response.ok:
+            logger.warning(
+                "safe_http_fetch: non-success status %d from '%s'",
+                response.status_code,
+                current_url,
+            )
+            return None
+
+        return response
+
+    logger.warning(
+        "safe_http_fetch: exceeded max_redirects=%d starting from '%s'",
+        max_redirects,
+        url,
+    )
+    return None
