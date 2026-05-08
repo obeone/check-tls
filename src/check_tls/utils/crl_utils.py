@@ -5,16 +5,16 @@ Utility functions for downloading, parsing, and checking Certificate Revocation 
 Provides helpers to fetch CRLs from URIs, parse them, and check the revocation status of certificates.
 """
 
-import urllib.request
 import logging
 import datetime
 from datetime import timezone
-import socket
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, CRLEntryExtensionOID
 from typing import Optional, Dict, Any
 import urllib.parse
+
+from check_tls.utils.security_utils import safe_http_fetch
 
 # Timeout in seconds for CRL HTTP requests
 CRL_TIMEOUT = 10
@@ -23,6 +23,10 @@ CRL_TIMEOUT = 10
 def download_crl(url: str) -> Optional[bytes]:
     """
     Download a Certificate Revocation List (CRL) from the given URL.
+
+    The download is routed through :func:`safe_http_fetch` so the URL —
+    and any 3xx redirect target — is validated against the SSRF
+    allowlist before any bytes are read.
 
     Args:
         url (str): The URL to fetch the CRL from.
@@ -33,18 +37,10 @@ def download_crl(url: str) -> Optional[bytes]:
     Example:
         crl_data = download_crl("http://example.com/crl.pem")
     """
-    try:
-        req = urllib.request.Request(
-            url, headers={'User-Agent': 'Python-CertCheck/1.3'}
-        )
-        with urllib.request.urlopen(req, timeout=CRL_TIMEOUT) as response:
-            if response.status == 200:
-                return response.read()
-            else:
-                return None
-    except Exception as e:
-        # Could log the exception here if needed
+    response = safe_http_fetch(url, timeout=CRL_TIMEOUT)
+    if response is None:
         return None
+    return response.content
 
 
 def parse_crl(crl_data: bytes) -> Optional[x509.CertificateRevocationList]:
