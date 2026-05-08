@@ -21,6 +21,7 @@ from check_tls.utils.cert_utils import (
 from check_tls.utils.crl_utils import check_crl
 from check_tls.utils.crtsh_utils import query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
+from check_tls.utils.domain_parser import parse_domain_entry
 from check_tls.utils.security_utils import safe_http_fetch, validate_host_for_connection
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -755,23 +756,9 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
     logger.info(f"Mode: {mode}, Insecure Fetching: {insecure}, Transparency Check: {not skip_transparency}, CRL Check: {perform_crl_check}, OCSP Check: {perform_ocsp_check}")
 
     def process_domain(domain_entry_str: str) -> dict:
-        parts = domain_entry_str.split(':', 1)
-        domain_to_analyze = parts[0]
-        port_to_analyze = 443  # Default HTTPS port
-
-        if len(parts) > 1:
-            try:
-                port_val = int(parts[1])
-                if 1 <= port_val <= 65535:
-                    port_to_analyze = port_val
-                else:
-                    logger.warning(
-                        f"Port {port_val} for {domain_to_analyze} is out of valid range (1-65535). Using default port 443."
-                    )
-            except ValueError:
-                logger.warning(
-                    f"Invalid port format '{parts[1]}' for {domain_to_analyze}. Using default port 443."
-                )
+        parsed = parse_domain_entry(domain_entry_str)
+        domain_to_analyze = parsed.host
+        port_to_analyze = parsed.port
 
         logger.info(
             f"--- Analyzing domain: {domain_to_analyze} on port {port_to_analyze} ---"
