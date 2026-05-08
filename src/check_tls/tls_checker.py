@@ -51,7 +51,9 @@ def _build_ssl_context(insecure: bool) -> ssl.SSLContext:
 
     The context disables automatic hostname checking so the leaf
     certificate can be retrieved even when the hostname does not match;
-    callers are expected to perform manual hostname validation.
+    callers are expected to perform manual hostname validation. ALPN is
+    advertised with ``h2`` and ``http/1.1`` so the negotiated protocol
+    can be reported back to the user.
 
     Parameters
     ----------
@@ -63,7 +65,8 @@ def _build_ssl_context(insecure: bool) -> ssl.SSLContext:
     Returns
     -------
     ssl.SSLContext
-        A configured SSL context with TLS 1.2 minimum (best effort).
+        A configured SSL context with TLS 1.2 minimum (best effort) and
+        ALPN protocols advertised.
     """
     logger = logging.getLogger("certcheck")
     context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
@@ -73,6 +76,12 @@ def _build_ssl_context(insecure: bool) -> ssl.SSLContext:
         context.minimum_version = ssl.TLSVersion.TLSv1_2
     except AttributeError:
         logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
+
+    try:
+        context.set_alpn_protocols(["h2", "http/1.1"])
+    except (NotImplementedError, AttributeError):
+        # Older Python / SSL builds without ALPN support — silently skip.
+        logger.debug("ALPN not supported by this SSL build; skipping ALPN negotiation.")
 
     return context
 
@@ -97,11 +106,18 @@ def _extract_conn_info(ssock: ssl.SSLSocket) -> Dict[str, Any]:
         "tls_version": ssock.version(),
         "supports_tls13": False,
         "cipher_suite": None,
+        "alpn_protocol": None,
     }
     cipher_details = ssock.cipher()
     if cipher_details:
         info["cipher_suite"] = cipher_details[0]
     info["supports_tls13"] = info["tls_version"] == "TLSv1.3"
+
+    try:
+        info["alpn_protocol"] = ssock.selected_alpn_protocol()
+    except (AttributeError, NotImplementedError):
+        info["alpn_protocol"] = None
+
     return info
 
 
@@ -204,7 +220,8 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
     (x509.Certificate or None, dict or None)
         Tuple of the leaf certificate (when retrievable) and a connection
         info dictionary that always carries ``checked``, ``error``,
-        ``tls_version``, ``supports_tls13`` and ``cipher_suite`` keys.
+        ``tls_version``, ``supports_tls13``, ``cipher_suite`` and
+        ``alpn_protocol`` keys.
     """
     logger = logging.getLogger("certcheck")
     logger.debug(f"Connecting to {domain}:{port} to fetch certificate and connection info...")
@@ -217,6 +234,7 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         "tls_version": None,
         "supports_tls13": None,
         "cipher_suite": None,
+        "alpn_protocol": None,
     }
 
     # Security validation: Check if the host resolves to private/internal IPs
@@ -254,7 +272,10 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         # Capture TLS metadata
         conn_info.update(_extract_conn_info(ssock))
 
-        logger.info(f"Connection info for {domain}: TLS={conn_info['tls_version']}, Cipher={conn_info['cipher_suite']}")
+        logger.info(
+            f"Connection info for {domain}: TLS={conn_info['tls_version']}, "
+            f"Cipher={conn_info['cipher_suite']}, ALPN={conn_info['alpn_protocol']}"
+        )
 
         # Get the peer certificate in DER format
         der_cert = ssock.getpeercert(binary_form=True)
@@ -619,6 +640,7 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
             "tls_version": None,
             "supports_tls13": None,
             "cipher_suite": None,
+            "alpn_protocol": None,
         },
         "validation": {
             "system_trust_store": None,
@@ -996,7 +1018,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
             # For now, keeping the original extensive header list
             writer.writerow([
                 'domain', 'status', 'error_message', 'analysis_timestamp',
-                'tls_checked', 'tls_error', 'tls_version', 'supports_tls13', 'cipher_suite',
+                'tls_checked', 'tls_error', 'tls_version', 'supports_tls13', 'cipher_suite', 'alpn_protocol',
                 'system_trust_store', 'validation_error',
                 'crl_checked', 'crl_leaf_status', 'crl_detail',
                 'ocsp_checked', 'ocsp_status', 'ocsp_detail',
@@ -1025,7 +1047,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                         res_item.get('domain'), res_item.get('status'), res_item.get('error_message'), res_item.get('analysis_timestamp'),
                         conn_health.get('checked'), conn_health.get('error'),
                         conn_health.get('tls_version'), conn_health.get('supports_tls13'),
-                        conn_health.get('cipher_suite'),
+                        conn_health.get('cipher_suite'), conn_health.get('alpn_protocol'),
                         validation_info.get('system_trust_store'), validation_info.get('error'),
                         crl_info.get('checked'), crl_info.get('leaf_status'),
                         json.dumps(crl_info.get('details')),
@@ -1043,7 +1065,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                             res_item.get('domain'), res_item.get('status'), res_item.get('error_message'), res_item.get('analysis_timestamp'),
                             conn_health.get('checked'), conn_health.get('error'),
                             conn_health.get('tls_version'), conn_health.get('supports_tls13'),
-                            conn_health.get('cipher_suite'),
+                            conn_health.get('cipher_suite'), conn_health.get('alpn_protocol'),
                             validation_info.get('system_trust_store'), validation_info.get('error'),
                             crl_info.get('checked'), crl_info.get('leaf_status'),
                             json.dumps(crl_info.get('details')),
