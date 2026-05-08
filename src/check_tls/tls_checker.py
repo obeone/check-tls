@@ -661,12 +661,16 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         logger.info(f"Skipping OCSP check for {domain} as requested.")
         result["ocsp_check"]["checked"] = False
 
-    logger.info(f"Checking DNS CAA records for {domain}...")
-    try:
-        caa_info = query_caa(domain)
-        result["caa_check"].update(caa_info)
-    except Exception as e:
-        result["caa_check"].update({"checked": True, "found": False, "records": None, "error": str(e)})
+    if perform_caa_check:
+        logger.info(f"Checking DNS CAA records for {domain}...")
+        try:
+            caa_info = query_caa(domain)
+            result["caa_check"].update(caa_info)
+        except Exception as e:
+            result["caa_check"].update({"checked": True, "found": False, "records": None, "error": str(e)})
+    else:
+        logger.info(f"Skipping DNS CAA check for {domain} as requested.")
+        result["caa_check"]["checked"] = False
 
     # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
