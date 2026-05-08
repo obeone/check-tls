@@ -107,9 +107,11 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         names = san_hosts.copy()
         if cn and cn not in names:
             names.insert(0, cn)
-        # Use internal _dnsname_match for wildcard support similar to match_hostname
+        # Use internal _dnsname_match for wildcard support similar to match_hostname.
+        # Signature is _dnsname_match(dn, hostname) — the certificate name (which
+        # may carry a wildcard) goes first, the hostname being checked second.
         from ssl import _dnsname_match
-        if not any(_dnsname_match(domain, name) for name in names):
+        if not any(_dnsname_match(name, domain) for name in names):
             validity_info = (
                 f" Valid from {cert.not_valid_before_utc.isoformat()}"
                 f" to {cert.not_valid_after_utc.isoformat()}."

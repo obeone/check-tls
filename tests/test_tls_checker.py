@@ -250,6 +250,53 @@ def base_analyze(domain, port, insecure):
     )
 
 
+def test_fetch_leaf_certificate_wildcard_san_matches_subdomain(monkeypatch):
+    cert, cert_path, key_path = generate_self_signed_cert(
+        "*.example.test", ["*.example.test", "example.test"],
+    )
+    port, stop_server = start_test_server(cert_path, key_path)
+
+    real_create_connection = socket.create_connection
+
+    def redirected(address, *args, **kwargs):
+        host, p = address
+        return real_create_connection(("127.0.0.1", p), *args, **kwargs)
+
+    monkeypatch.setattr(socket, "create_connection", redirected)
+    try:
+        fetched_cert, conn_info = fetch_leaf_certificate_and_conn_info(
+            "www.example.test", port=port, insecure=True
+        )
+        assert fetched_cert is not None
+        assert conn_info["error"] is None
+    finally:
+        stop_server()
+
+
+def test_fetch_leaf_certificate_wildcard_san_rejects_apex(monkeypatch):
+    cert, cert_path, key_path = generate_self_signed_cert(
+        "*.example.test", ["*.example.test"],
+    )
+    port, stop_server = start_test_server(cert_path, key_path)
+
+    real_create_connection = socket.create_connection
+
+    def redirected(address, *args, **kwargs):
+        host, p = address
+        return real_create_connection(("127.0.0.1", p), *args, **kwargs)
+
+    monkeypatch.setattr(socket, "create_connection", redirected)
+    try:
+        fetched_cert, conn_info = fetch_leaf_certificate_and_conn_info(
+            "example.test", port=port, insecure=True
+        )
+        assert fetched_cert is not None
+        err = conn_info["error"] or ""
+        assert "Hostname mismatch" in err
+    finally:
+        stop_server()
+
+
 def test_analyze_certificates_host_mismatch_propagates_error():
     cert, cert_path, key_path = generate_self_signed_cert(
         "example.com", ["example.com"],
