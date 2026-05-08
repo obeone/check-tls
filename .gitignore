@@ -4,3 +4,4 @@ build
 check_tls.egg-info
 .history
 .DS_Store
+uv.lock
