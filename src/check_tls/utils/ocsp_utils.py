@@ -7,11 +7,12 @@ checks for X.509 certificates.
 """
 from typing import Any, Dict, List, Optional
 
-import requests
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509 import ocsp
 from cryptography.x509.oid import AuthorityInformationAccessOID, ExtensionOID # Import ExtensionOID
+
+from check_tls.utils.security_utils import safe_http_fetch
 
 
 def get_ocsp_urls(cert: x509.Certificate) -> List[str]:
@@ -95,16 +96,19 @@ def fetch_ocsp_response(url: str, request_data: bytes) -> Optional[bytes]:
         >>> #     print("Failed to fetch OCSP response.")
         OCSP response received. # Or Failed to fetch OCSP response.
     """
-    try:
-        headers = {"Content-Type": "application/ocsp-request"}
-        response = requests.post(url, data=request_data, headers=headers, timeout=10)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        if response.status_code == 200:
-            return response.content
-    except requests.exceptions.RequestException:
-        # Covers connection errors, timeouts, HTTP errors, etc.
-        pass
-    return None
+    headers = {"Content-Type": "application/ocsp-request"}
+    response = safe_http_fetch(
+        url,
+        method="POST",
+        data=request_data,
+        headers=headers,
+        timeout=10,
+    )
+    if response is None:
+        # safe_http_fetch already logged the failure reason (SSRF block,
+        # transport error, non-2xx, or too many redirects).
+        return None
+    return response.content
 
 
 def parse_ocsp_response(data: bytes) -> Dict[str, Any]:
