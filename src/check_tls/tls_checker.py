@@ -19,7 +19,7 @@ from check_tls.utils.cert_utils import (
     has_scts,
 )
 from check_tls.utils.crl_utils import check_crl
-from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
+from check_tls.utils.crtsh_utils import query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
 from check_tls.utils.security_utils import safe_http_fetch, validate_host_for_connection
 from cryptography import x509
@@ -27,6 +27,18 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID, AuthorityInformationAccessOID
 import json
 import os
+
+
+# EKU OID to friendly name mapping for detect_profile
+_EKU_LABELS = {
+    ExtendedKeyUsageOID.SERVER_AUTH: "TLS Server",
+    ExtendedKeyUsageOID.CLIENT_AUTH: "TLS Client",
+    ExtendedKeyUsageOID.EMAIL_PROTECTION: "Email Protection",
+    ExtendedKeyUsageOID.CODE_SIGNING: "Code Signing",
+    ExtendedKeyUsageOID.TIME_STAMPING: "Time Stamping",
+    ExtendedKeyUsageOID.OCSP_SIGNING: "OCSP Signing",
+    ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE: "Any EKU",
+}
 
 
 def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
@@ -393,7 +405,8 @@ def detect_profile(cert: x509.Certificate) -> str:
             profile = "TLS Server"
             other_ekus = [oid for oid in usages if oid != ExtendedKeyUsageOID.SERVER_AUTH]
             if other_ekus:
-                profile += f" (+ {', '.join([oid._name for oid in other_ekus if hasattr(oid, '_name')])})"
+                other_labels = [_EKU_LABELS.get(oid, oid.dotted_string) for oid in other_ekus]
+                profile += f" (+ {', '.join(other_labels)})"
         elif ExtendedKeyUsageOID.CLIENT_AUTH in usages:
             profile = "TLS Client"
         elif ExtendedKeyUsageOID.EMAIL_PROTECTION in usages:
