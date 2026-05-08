@@ -13,11 +13,10 @@ from check_tls.utils.cert_utils import *
 from check_tls.utils.crl_utils import *
 from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
-from check_tls.utils.security_utils import validate_host_for_connection
+from check_tls.utils.security_utils import safe_http_fetch, validate_host_for_connection
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID, AuthorityInformationAccessOID
-import urllib.request
 import json
 import os
 
@@ -226,8 +225,6 @@ def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certifi
     Returns:
         List[x509.Certificate]: A list of intermediate certificates fetched from AIA URLs.
     """
-    import urllib.error  # Import here to fix type error and ensure availability
-
     logger = logging.getLogger("certcheck")
     intermediates = []
 
@@ -260,42 +257,40 @@ def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certifi
             fetched_urls.add(url)
             logger.info(f"Fetching intermediate certificate from AIA URL: {url}")
 
+            # safe_http_fetch validates each hop (including redirects) against
+            # the SSRF allowlist and returns None on any failure, so a single
+            # except branch handles unexpected parse errors below.
+            response = safe_http_fetch(url)
+            if response is None:
+                logger.warning(f"Failed to fetch intermediate certificate from {url}")
+                continue
+
             try:
-                # Corrected urllib.request usage
-                req = urllib.request.Request(url, headers={'User-Agent': 'Python-CertCheck/1.3'})
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    if response.status == 200:
-                        intermediate_der = response.read()
-                        content_type = response.info().get_content_type().lower()
-                        allowed_types = [
-                            'application/pkix-cert',
-                            'application/x-x509-ca-cert',
-                            'application/octet-stream',
-                            'application/pkcs7-mime'
-                        ]
-                        if any(allowed in content_type for allowed in allowed_types):
-                            try:
-                                # Detect PEM or DER format and load accordingly
-                                if b"-----BEGIN CERTIFICATE-----" in intermediate_der:
-                                    intermediate_cert = x509.load_pem_x509_certificate(intermediate_der, default_backend())
-                                else:
-                                    intermediate_cert = x509.load_der_x509_certificate(intermediate_der, default_backend())
-                                intermediates.append(intermediate_cert)
-                                logger.debug(f"Successfully loaded intermediate from {url}")
-                            except ValueError as e:
-                                logger.warning(f"Could not parse certificate data from {url}: {e}")
-                            except Exception as e:
-                                logger.warning(f"Unexpected error parsing certificate from {url}: {e}")
+                intermediate_der = response.content
+                content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                allowed_types = [
+                    'application/pkix-cert',
+                    'application/x-x509-ca-cert',
+                    'application/octet-stream',
+                    'application/pkcs7-mime'
+                ]
+                if any(allowed in content_type for allowed in allowed_types):
+                    try:
+                        # Detect PEM or DER format and load accordingly
+                        if b"-----BEGIN CERTIFICATE-----" in intermediate_der:
+                            intermediate_cert = x509.load_pem_x509_certificate(intermediate_der, default_backend())
                         else:
-                            logger.warning(f"Unexpected content type '{content_type}' for intermediate certificate at {url}")
-                    else:
-                        logger.warning(f"Failed to fetch intermediate from {url}, status code: {response.status}")
-            except urllib.error.URLError as e:
-                logger.warning(f"Failed to fetch intermediate certificate from {url}: {e}")
-            except socket.timeout:
-                logger.warning(f"Timeout fetching intermediate certificate from {url}")
+                            intermediate_cert = x509.load_der_x509_certificate(intermediate_der, default_backend())
+                        intermediates.append(intermediate_cert)
+                        logger.debug(f"Successfully loaded intermediate from {url}")
+                    except ValueError as e:
+                        logger.warning(f"Could not parse certificate data from {url}: {e}")
+                    except Exception as e:
+                        logger.warning(f"Unexpected error parsing certificate from {url}: {e}")
+                else:
+                    logger.warning(f"Unexpected content type '{content_type}' for intermediate certificate at {url}")
             except Exception as e:
-                logger.warning(f"Unexpected error fetching intermediate certificate from {url}: {e}")
+                logger.warning(f"Unexpected error processing intermediate certificate from {url}: {e}")
 
     except x509.ExtensionNotFound:
         logger.info("No AIA extension found in the certificate to fetch intermediates.")
