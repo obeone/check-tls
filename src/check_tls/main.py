@@ -54,6 +54,15 @@ def print_human_summary(results):
             )
             print(f"  TLS 1.3     : {tls13_text}")
             print(f"  Cipher Suite: {conn.get('cipher_suite', 'N/A')}")
+            # ALPN: green when h2 negotiated, default otherwise.
+            alpn = conn.get('alpn_protocol')
+            if alpn == 'h2':
+                alpn_text = '\033[92mh2\033[0m'
+            elif alpn:
+                alpn_text = alpn
+            else:
+                alpn_text = '\033[93mN/A\033[0m'
+            print(f"  ALPN        : {alpn_text}")
             # Print connection error if present (uses red color \033[91m)
             if conn.get('error'):
                 print(f"  Error       : \033[91m{conn['error']}\033[0m")
@@ -412,6 +421,10 @@ def create_parser():
                         help='Disable DNS CAA record check')
     parser.add_argument('--no-hsts-check', action='store_true',
                         help='Disable HTTP Strict Transport Security (HSTS) header probe')
+    parser.add_argument('--starttls', type=str, choices=['smtp', 'imap', 'pop3', 'ldap'], default=None,
+                        help=("Negotiate STARTTLS for the given plaintext protocol before TLS. "
+                              "When set with no explicit port, the protocol's default port is used "
+                              "(smtp=25, imap=143, pop3=110). 'ldap' is reserved and emits a clear error."))
 
     # Add shtab completion argument using the parser program name
     prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
@@ -459,6 +472,13 @@ def main():
         parser.print_help()
         sys.exit(0)
 
+    # When STARTTLS is requested without an explicit --connect-port, fall
+    # back to the protocol's default port (25/143/110) instead of 443.
+    starttls_default_ports = {"smtp": 25, "imap": 143, "pop3": 110}
+    user_supplied_port = '-P' in sys.argv or '--connect-port' in sys.argv
+    if args.starttls and not user_supplied_port and args.starttls in starttls_default_ports:
+        args.connect_port = starttls_default_ports[args.starttls]
+
     # Run the web server if the --server flag is set
     if args.server:
         if args.domains:
@@ -500,6 +520,7 @@ def main():
                         perform_ocsp_check=not args.no_ocsp_check,
                         perform_caa_check=not args.no_caa_check,
                         perform_hsts_check=not args.no_hsts_check,
+                        starttls=args.starttls,
                     )
                 )
                 print(" \033[92mdone\033[0m")
@@ -521,6 +542,7 @@ def main():
                 perform_ocsp_check=not args.no_ocsp_check,
                 perform_caa_check=not args.no_caa_check,
                 perform_hsts_check=not args.no_hsts_check,
+                starttls=args.starttls,
             )
 
 

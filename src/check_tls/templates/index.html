@@ -30,7 +30,16 @@
         <label for="connect_port" class="form-label">Default Port</label>
         <input type="number" class="form-control" id="connect_port" name="connect_port" value="443" min="1" max="65535">
       </div>
-      <div class="col-12 col-md-10">
+      <div class="col-12 col-md-2">
+        <label for="starttls" class="form-label">STARTTLS</label>
+        <select class="form-select" id="starttls" name="starttls">
+          <option value="" selected>None (implicit TLS)</option>
+          <option value="smtp">SMTP (25/587)</option>
+          <option value="imap">IMAP (143)</option>
+          <option value="pop3">POP3 (110)</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-8">
         <div class="d-flex flex-wrap gap-3 mt-4 justify-content-end" id="option-container">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="insecure" name="insecure" value="true">
@@ -79,6 +88,7 @@
                 <th>Expires</th>
                 <th>Issuer</th>
                 <th>TLS</th>
+                <th>ALPN</th>
                 <th>CRL</th>
                 <th>OCSP</th>
                 <th>CAA</th>
