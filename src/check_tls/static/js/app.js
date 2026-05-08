@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function caaBadge(caa) {
-    if (!caa || !caa.checked) return '<span class="badge bg-secondary">NOT DEFINED</span>';
+    if (!caa || !caa.checked) return '<span class="badge bg-secondary">N/A</span>';
     if (caa.error) return '<span class="badge badge-expired">KO</span>';
     if (caa.found) return '<span class="badge badge-ok">OK</span>';
     return '<span class="badge badge-warning">NOT DEFINED</span>';
