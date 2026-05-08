@@ -10,12 +10,14 @@ import csv
 from typing import List, Optional, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 from check_tls.utils.cert_utils import (
+    assess_cert_quality,
     calculate_days_remaining,
     extract_san,
     get_common_name,
     get_public_key_details,
     get_sha256_fingerprint,
     get_signature_algorithm,
+    has_must_staple,
     has_scts,
 )
 from check_tls.utils.crl_utils import check_crl
@@ -43,43 +45,179 @@ _EKU_LABELS = {
 }
 
 
+def _build_ssl_context(insecure: bool) -> ssl.SSLContext:
+    """
+    Build an SSL context for outbound TLS handshakes.
+
+    The context disables automatic hostname checking so the leaf
+    certificate can be retrieved even when the hostname does not match;
+    callers are expected to perform manual hostname validation.
+
+    Parameters
+    ----------
+    insecure : bool
+        If True, return a fully unverified context (equivalent to
+        ``ssl._create_unverified_context``). Otherwise return the system
+        default context with ``check_hostname`` disabled.
+
+    Returns
+    -------
+    ssl.SSLContext
+        A configured SSL context with TLS 1.2 minimum (best effort).
+    """
+    logger = logging.getLogger("certcheck")
+    context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+    context.check_hostname = False
+
+    try:
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    except AttributeError:
+        logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
+
+    return context
+
+
+def _extract_conn_info(ssock: ssl.SSLSocket) -> Dict[str, Any]:
+    """
+    Extract TLS connection metadata from an established SSL socket.
+
+    Parameters
+    ----------
+    ssock : ssl.SSLSocket
+        The wrapped socket after a successful handshake.
+
+    Returns
+    -------
+    dict
+        A dictionary with ``tls_version``, ``supports_tls13`` and
+        ``cipher_suite`` populated. Always sets ``checked = True``.
+    """
+    info: Dict[str, Any] = {
+        "checked": True,
+        "tls_version": ssock.version(),
+        "supports_tls13": False,
+        "cipher_suite": None,
+    }
+    cipher_details = ssock.cipher()
+    if cipher_details:
+        info["cipher_suite"] = cipher_details[0]
+    info["supports_tls13"] = info["tls_version"] == "TLSv1.3"
+    return info
+
+
+def _verify_hostname_manually(cert: x509.Certificate, domain: str) -> Optional[str]:
+    """
+    Manually verify that ``domain`` matches one of the certificate's names.
+
+    Wildcard SANs are honored using ``ssl._dnsname_match``. When no name
+    matches, a detailed error string is returned including the certificate
+    validity window.
+
+    Parameters
+    ----------
+    cert : x509.Certificate
+        The leaf certificate retrieved from the server.
+    domain : str
+        The hostname the client expected to reach.
+
+    Returns
+    -------
+    str or None
+        ``None`` when the hostname matches; a human-readable error message
+        otherwise.
+    """
+    san_hosts = extract_san(cert)
+    cn = get_common_name(cert.subject)
+    names = san_hosts.copy()
+    if cn and cn not in names:
+        names.insert(0, cn)
+
+    # Use internal _dnsname_match for wildcard support similar to match_hostname.
+    # Signature is _dnsname_match(dn, hostname) — the certificate name (which
+    # may carry a wildcard) goes first, the hostname being checked second.
+    from ssl import _dnsname_match
+    if any(_dnsname_match(name, domain) for name in names):
+        return None
+
+    validity_info = (
+        f" Valid from {cert.not_valid_before_utc.isoformat()}"
+        f" to {cert.not_valid_after_utc.isoformat()}."
+    )
+    return (
+        f"Hostname mismatch: {domain} not in certificate names: "
+        f"{', '.join(names) if names else 'None'}." + validity_info
+    )
+
+
+def _fetch_unverified_cert(domain: str, port: int) -> Optional[x509.Certificate]:
+    """
+    Open a fresh unverified TLS connection and return the peer certificate.
+
+    Used as a fallback after an ``ssl.SSLCertVerificationError`` so the
+    caller can still surface certificate details (subject, SANs, validity)
+    even though the chain failed to validate.
+
+    Parameters
+    ----------
+    domain : str
+        Server hostname.
+    port : int
+        Server TCP port.
+
+    Returns
+    -------
+    x509.Certificate or None
+        The parsed peer certificate, or ``None`` if no certificate could
+        be retrieved.
+    """
+    alt_context = ssl._create_unverified_context()
+    alt_context.check_hostname = False
+    with socket.create_connection((domain, port), timeout=10) as tmp_sock:
+        with alt_context.wrap_socket(tmp_sock, server_hostname=domain) as tmp_ssock:
+            der_cert = tmp_ssock.getpeercert(binary_form=True)
+    if not der_cert:
+        return None
+    return x509.load_der_x509_certificate(der_cert, default_backend())
+
+
 def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
     """
-    Fetch the leaf TLS certificate and connection information from a domain's server.
+    Fetch the leaf TLS certificate and connection information from a server.
 
-    Parameters:
-        domain (str): The domain name to connect to.
-        port (int): The port number to connect to.
-        insecure (bool): If True, ignore SSL certificate verification errors.
+    Public orchestrator: performs SSRF validation, opens a TCP connection,
+    runs the TLS handshake, captures connection metadata, retrieves the
+    leaf certificate, and runs manual hostname verification so mismatches
+    are reported in the returned ``error`` field instead of raising.
 
-    Returns:
-        Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
-            - The leaf x509 certificate if successfully fetched, else None.
-            - A dictionary with connection info including TLS version, cipher suite, and error details if any.
+    Parameters
+    ----------
+    domain : str
+        Server hostname.
+    port : int, optional
+        Server TCP port. Defaults to 443.
+    insecure : bool, optional
+        If True, ignore SSL certificate verification errors during the
+        primary handshake.
+
+    Returns
+    -------
+    (x509.Certificate or None, dict or None)
+        Tuple of the leaf certificate (when retrievable) and a connection
+        info dictionary that always carries ``checked``, ``error``,
+        ``tls_version``, ``supports_tls13`` and ``cipher_suite`` keys.
     """
     logger = logging.getLogger("certcheck")
     logger.debug(f"Connecting to {domain}:{port} to fetch certificate and connection info...")
 
-    # Create SSL context and disable automatic hostname checking so we can
-    # always retrieve the certificate even when mismatched. Manual validation
-    # will be performed after the TLS handshake.
-    context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
-    context.check_hostname = False
+    context = _build_ssl_context(insecure=insecure)
 
-    # Initialize connection info dictionary with default values
-    conn_info = {
+    conn_info: Dict[str, Any] = {
         "checked": False,
         "error": None,
         "tls_version": None,
         "supports_tls13": None,
         "cipher_suite": None,
     }
-
-    try:
-        # Set minimum TLS version to 1.2 if supported by the SSL module
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-    except AttributeError:
-        logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
 
     # Security validation: Check if the host resolves to private/internal IPs
     # This prevents SSRF attacks by blocking connections to internal networks.
@@ -113,13 +251,8 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         # when the socket is connected to a pinned IP.
         ssock = context.wrap_socket(sock, server_hostname=domain)
 
-        # Extract TLS version and cipher suite details
-        conn_info["tls_version"] = ssock.version()
-        cipher_details = ssock.cipher()
-        if cipher_details:
-            conn_info["cipher_suite"] = cipher_details[0]
-        conn_info["supports_tls13"] = conn_info["tls_version"] == "TLSv1.3"
-        conn_info["checked"] = True
+        # Capture TLS metadata
+        conn_info.update(_extract_conn_info(ssock))
 
         logger.info(f"Connection info for {domain}: TLS={conn_info['tls_version']}, Cipher={conn_info['cipher_suite']}")
 
@@ -135,24 +268,8 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
         # Manual hostname verification to capture detailed mismatch information
         ssock.getpeercert()
-        san_hosts = extract_san(cert)
-        cn = get_common_name(cert.subject)
-        names = san_hosts.copy()
-        if cn and cn not in names:
-            names.insert(0, cn)
-        # Use internal _dnsname_match for wildcard support similar to match_hostname.
-        # Signature is _dnsname_match(dn, hostname) — the certificate name (which
-        # may carry a wildcard) goes first, the hostname being checked second.
-        from ssl import _dnsname_match
-        if not any(_dnsname_match(name, domain) for name in names):
-            validity_info = (
-                f" Valid from {cert.not_valid_before_utc.isoformat()}"
-                f" to {cert.not_valid_after_utc.isoformat()}."
-            )
-            mismatch_detail = (
-                f"Hostname mismatch: {domain} not in certificate names: "
-                f"{', '.join(names) if names else 'None'}." + validity_info
-            )
+        mismatch_detail = _verify_hostname_manually(cert, domain)
+        if mismatch_detail:
             if insecure:
                 logger.warning(mismatch_detail + " (ignored due to insecure mode)")
             else:
@@ -179,13 +296,8 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
         # Attempt to fetch the certificate using an unverified context to provide details
         try:
-            alt_context = ssl._create_unverified_context()
-            alt_context.check_hostname = False
-            with socket.create_connection((domain, port), timeout=10) as tmp_sock:
-                with alt_context.wrap_socket(tmp_sock, server_hostname=domain) as tmp_ssock:
-                    der_cert = tmp_ssock.getpeercert(binary_form=True)
-            if der_cert:
-                cert = x509.load_der_x509_certificate(der_cert, default_backend())
+            cert = _fetch_unverified_cert(domain, port)
+            if cert is not None:
                 san_hosts = extract_san(cert)
                 cn = get_common_name(cert.subject)
                 names = san_hosts.copy()
@@ -197,9 +309,8 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
                 )
                 conn_info["error"] = error_msg + names_info + validity_info
                 return cert, conn_info
-            else:
-                conn_info["error"] = error_msg + " | No cert received in insecure fetch."
-                return None, conn_info
+            conn_info["error"] = error_msg + " | No cert received in insecure fetch."
+            return None, conn_info
         except Exception as inner_e:
             logger.error(
                 f"Failed to fetch certificate insecurely from {domain} after verification error: {inner_e}"
