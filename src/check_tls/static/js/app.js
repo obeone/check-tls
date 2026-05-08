@@ -59,6 +59,14 @@ document.addEventListener('DOMContentLoaded', function() {
     return '<span class="badge badge-warning">?</span>';
   }
 
+  function alpnBadge(alpn) {
+    // Visualize the ALPN-negotiated application protocol returned by the server.
+    // h2 -> green; http/1.1 (or any other negotiated string) -> neutral; null -> grey N/A.
+    if (alpn === 'h2') return '<span class="badge badge-ok">h2</span>';
+    if (alpn) return '<span class="badge bg-secondary">' + escapeHtml(alpn) + '</span>';
+    return '<span class="badge bg-secondary">N/A</span>';
+  }
+
   function displayTlsVersion(version) {
     if (!version) return '-';
     return version === 'TLSv1.3' ? '' : version;
@@ -137,6 +145,7 @@ document.addEventListener('DOMContentLoaded', function() {
           <td data-bs-toggle="tooltip" data-bs-title="TLS version used for the connection and TLS 1.3 support.">${escapeHtml(displayTlsVersion(r.connection_health && r.connection_health.tls_version))}
               ${tls13Badge(r.connection_health && r.connection_health.supports_tls13)}
           </td>
+          <td data-bs-toggle="tooltip" data-bs-title="ALPN application protocol negotiated by the server (e.g. h2, http/1.1).">${alpnBadge(r.connection_health && r.connection_health.alpn_protocol)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Certificate Revocation List (CRL) check status for the leaf certificate.">${crlBadge(r.crl_check)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Online Certificate Status Protocol (OCSP) check status for the leaf certificate.">${ocspBadge(r.ocsp_check)}</td>
           <td data-bs-toggle="tooltip" data-bs-title="Presence of DNS CAA records for the domain.">${caaBadge(r.caa_check)}</td>
@@ -205,6 +214,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <span class="fw-semibold text-muted">TLS:</span><br>
             <span class="fs-6">${escapeHtml(displayTlsVersion(result.connection_health && result.connection_health.tls_version))}</span>
             ${tls13Badge(result.connection_health && result.connection_health.supports_tls13)}
+            ${alpnBadge(result.connection_health && result.connection_health.alpn_protocol)}
           </div>
         </div>
         <!-- Alerts -->
@@ -494,6 +504,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const noOcspCheck = formData.get('no_ocsp_check') === 'true';
     const noCaaCheck = formData.get('no_caa_check') === 'true';
     const noHstsCheck = formData.get('no_hsts_check') === 'true';
+    const starttlsRaw = (formData.get('starttls') || '').trim();
+    const starttls = starttlsRaw === '' ? null : starttlsRaw;
 
     const payload = {
       domains: domainsArray,
@@ -503,7 +515,8 @@ document.addEventListener('DOMContentLoaded', function() {
       no_crl_check: noCrlCheck,
       no_ocsp_check: noOcspCheck,
       no_caa_check: noCaaCheck,
-      no_hsts_check: noHstsCheck
+      no_hsts_check: noHstsCheck,
+      starttls: starttls
     };
 
     fetch('/api/analyze', {

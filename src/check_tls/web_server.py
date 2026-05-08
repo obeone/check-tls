@@ -166,12 +166,24 @@ def get_flask_app():
         no_caa_check_flag = bool(data.get('no_caa_check', False))
         no_hsts_check_flag = bool(data.get('no_hsts_check', False))
 
+        starttls_raw = data.get('starttls')
+        if isinstance(starttls_raw, str) and starttls_raw.strip().lower() in {"smtp", "imap", "pop3", "ldap"}:
+            starttls_flag = starttls_raw.strip().lower()
+        else:
+            starttls_flag = None
+
         try:
             connect_port_from_json = int(data.get('connect_port', 443))
             if not (1 <= connect_port_from_json <= 65535):
                 connect_port_from_json = 443
         except ValueError:
             connect_port_from_json = 443
+
+        # Adjust default port to the protocol's plaintext port when STARTTLS
+        # is requested and the client did not send an explicit port.
+        starttls_default_ports = {"smtp": 25, "imap": 143, "pop3": 110}
+        if starttls_flag in starttls_default_ports and 'connect_port' not in data:
+            connect_port_from_json = starttls_default_ports[starttls_flag]
 
         results = []
         for domain_entry in domains_input:
@@ -185,6 +197,7 @@ def get_flask_app():
                 perform_ocsp_check=not no_ocsp_check_flag,
                 perform_caa_check=not no_caa_check_flag,
                 perform_hsts_check=not no_hsts_check_flag,
+                starttls=starttls_flag,
             )
             # Include OCSP results in JSON API
             analysis_result["ocsp_check"] = analysis_result.get("ocsp_check", {})
