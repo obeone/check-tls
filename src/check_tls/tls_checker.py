@@ -45,6 +45,158 @@ _EKU_LABELS = {
 }
 
 
+SUPPORTED_STARTTLS_PROTOCOLS = ("smtp", "imap", "pop3")
+
+
+def _recv_line(sock: socket.socket, max_bytes: int = 4096) -> bytes:
+    """
+    Read until LF or until the buffer cap is reached.
+
+    The helper is intentionally tiny: STARTTLS banners are short and we
+    only consume what's needed to advance the per-protocol state machine.
+
+    Parameters
+    ----------
+    sock : socket.socket
+        Plain TCP socket to read from.
+    max_bytes : int, optional
+        Safety cap to avoid runaway reads.
+
+    Returns
+    -------
+    bytes
+        The data read up to and including the first LF byte (if any).
+    """
+    chunks = []
+    total = 0
+    while total < max_bytes:
+        chunk = sock.recv(1)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += 1
+        if chunk == b"\n":
+            break
+    return b"".join(chunks)
+
+
+def _recv_smtp_response(sock: socket.socket) -> bytes:
+    """
+    Read a complete multi-line SMTP response.
+
+    SMTP servers may emit multi-line replies where every line except the
+    last starts with ``XYZ-`` and the final line uses ``XYZ ``. This helper
+    accumulates lines until the terminating space marker is seen.
+
+    Parameters
+    ----------
+    sock : socket.socket
+        Plain TCP socket connected to the SMTP server.
+
+    Returns
+    -------
+    bytes
+        The full multi-line response.
+    """
+    buf = b""
+    while True:
+        line = _recv_line(sock)
+        if not line:
+            break
+        buf += line
+        # Locate the start of the line we just appended.
+        if buf.endswith(b"\n"):
+            last_line_start = buf.rfind(b"\n", 0, len(buf) - 1) + 1
+        else:
+            last_line_start = 0
+        last_line = buf[last_line_start:]
+        # End of multi-line response: 4th char is space (vs '-' for continuation)
+        if len(last_line) >= 4 and last_line[3:4] == b" ":
+            break
+    return buf
+
+
+def _starttls_upgrade(sock: socket.socket, protocol: str) -> None:
+    """
+    Perform the STARTTLS negotiation for a known plaintext protocol.
+
+    Currently supports ``smtp``, ``imap`` and ``pop3``. ``ldap`` is *not*
+    supported because it requires ASN.1/BER-encoded extended request
+    framing; passing it raises :class:`ValueError` so callers can surface
+    a clear error to the user.
+
+    Parameters
+    ----------
+    sock : socket.socket
+        The plain TCP socket; on return it has spoken the STARTTLS dance
+        and is ready for ``context.wrap_socket``.
+    protocol : str
+        One of :data:`SUPPORTED_STARTTLS_PROTOCOLS`.
+
+    Raises
+    ------
+    ValueError
+        If the protocol is unknown or unsupported.
+    OSError
+        If the underlying socket fails or the server refuses to upgrade.
+    """
+    logger = logging.getLogger("certcheck")
+    proto = (protocol or "").lower()
+    sock.settimeout(10)
+
+    if proto == "smtp":
+        banner = _recv_smtp_response(sock)
+        if not banner.startswith(b"220"):
+            raise OSError(f"SMTP server did not greet with 220: {banner!r}")
+        sock.sendall(b"EHLO check-tls\r\n")
+        ehlo_resp = _recv_smtp_response(sock)
+        if not ehlo_resp.startswith(b"250"):
+            raise OSError(f"SMTP EHLO failed: {ehlo_resp!r}")
+        sock.sendall(b"STARTTLS\r\n")
+        starttls_resp = _recv_smtp_response(sock)
+        if not starttls_resp.startswith(b"220"):
+            raise OSError(f"SMTP STARTTLS rejected: {starttls_resp!r}")
+
+    elif proto == "imap":
+        banner = _recv_line(sock)
+        if not banner.startswith(b"* OK"):
+            raise OSError(f"IMAP server did not greet with * OK: {banner!r}")
+        sock.sendall(b"a001 STARTTLS\r\n")
+        # IMAP may emit untagged responses before the tagged completion.
+        for _ in range(8):
+            line = _recv_line(sock)
+            if not line:
+                raise OSError("IMAP STARTTLS: connection closed before tagged reply")
+            if line.startswith(b"a001 "):
+                if not line.startswith(b"a001 OK"):
+                    raise OSError(f"IMAP STARTTLS rejected: {line!r}")
+                break
+        else:
+            raise OSError("IMAP STARTTLS: no tagged reply received")
+
+    elif proto == "pop3":
+        banner = _recv_line(sock)
+        if not banner.startswith(b"+OK"):
+            raise OSError(f"POP3 server did not greet with +OK: {banner!r}")
+        sock.sendall(b"STLS\r\n")
+        resp = _recv_line(sock)
+        if not resp.startswith(b"+OK"):
+            raise OSError(f"POP3 STLS rejected: {resp!r}")
+
+    elif proto == "ldap":
+        raise ValueError(
+            "STARTTLS for LDAP is not supported by check-tls; use implicit "
+            "LDAPS (port 636) instead."
+        )
+    else:
+        raise ValueError(
+            f"Unsupported STARTTLS protocol '{protocol}'. "
+            f"Supported: {', '.join(SUPPORTED_STARTTLS_PROTOCOLS)}."
+        )
+
+    logger.debug(f"STARTTLS upgrade ({proto}) negotiated successfully.")
+
+
 def _build_ssl_context(insecure: bool) -> ssl.SSLContext:
     """
     Build an SSL context for outbound TLS handshakes.
@@ -165,7 +317,9 @@ def _verify_hostname_manually(cert: x509.Certificate, domain: str) -> Optional[s
     )
 
 
-def _fetch_unverified_cert(domain: str, port: int) -> Optional[x509.Certificate]:
+def _fetch_unverified_cert(
+    domain: str, port: int, starttls: Optional[str] = None
+) -> Optional[x509.Certificate]:
     """
     Open a fresh unverified TLS connection and return the peer certificate.
 
@@ -179,6 +333,9 @@ def _fetch_unverified_cert(domain: str, port: int) -> Optional[x509.Certificate]
         Server hostname.
     port : int
         Server TCP port.
+    starttls : str, optional
+        STARTTLS protocol to negotiate before the TLS handshake. Must be
+        one of :data:`SUPPORTED_STARTTLS_PROTOCOLS` when set.
 
     Returns
     -------
@@ -188,7 +345,14 @@ def _fetch_unverified_cert(domain: str, port: int) -> Optional[x509.Certificate]
     """
     alt_context = ssl._create_unverified_context()
     alt_context.check_hostname = False
+    try:
+        alt_context.set_alpn_protocols(["h2", "http/1.1"])
+    except (NotImplementedError, AttributeError):
+        pass
+
     with socket.create_connection((domain, port), timeout=10) as tmp_sock:
+        if starttls:
+            _starttls_upgrade(tmp_sock, starttls)
         with alt_context.wrap_socket(tmp_sock, server_hostname=domain) as tmp_ssock:
             der_cert = tmp_ssock.getpeercert(binary_form=True)
     if not der_cert:
@@ -196,14 +360,20 @@ def _fetch_unverified_cert(domain: str, port: int) -> Optional[x509.Certificate]
     return x509.load_der_x509_certificate(der_cert, default_backend())
 
 
-def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure: bool = False) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
+def fetch_leaf_certificate_and_conn_info(
+    domain: str,
+    port: int = 443,
+    insecure: bool = False,
+    starttls: Optional[str] = None,
+) -> Tuple[Optional[x509.Certificate], Optional[Dict[str, Any]]]:
     """
     Fetch the leaf TLS certificate and connection information from a server.
 
-    Public orchestrator: performs SSRF validation, opens a TCP connection,
-    runs the TLS handshake, captures connection metadata, retrieves the
-    leaf certificate, and runs manual hostname verification so mismatches
-    are reported in the returned ``error`` field instead of raising.
+    Public orchestrator: performs SSRF validation, opens a TCP connection
+    (optionally negotiating STARTTLS first), runs the TLS handshake,
+    captures connection metadata, retrieves the leaf certificate, and
+    runs manual hostname verification so mismatches are reported in the
+    returned ``error`` field instead of raising.
 
     Parameters
     ----------
@@ -214,6 +384,9 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
     insecure : bool, optional
         If True, ignore SSL certificate verification errors during the
         primary handshake.
+    starttls : str, optional
+        STARTTLS protocol to negotiate before TLS. One of
+        :data:`SUPPORTED_STARTTLS_PROTOCOLS`. ``None`` means implicit TLS.
 
     Returns
     -------
@@ -264,6 +437,13 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         # validation and connect().
         connect_target = (resolved_ip or domain, port)
         sock = socket.create_connection(connect_target, timeout=10)
+
+        # Negotiate STARTTLS on the plain TCP socket before wrapping it
+        # with TLS, so SMTP/IMAP/POP3 servers that speak cleartext until
+        # the upgrade command can still be analysed.
+        if starttls:
+            _starttls_upgrade(sock, starttls)
+
         # Wrap socket with SSL context for TLS handshake; ``server_hostname``
         # stays the original domain so SNI and hostname matching work even
         # when the socket is connected to a pinned IP.
@@ -317,7 +497,7 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
         # Attempt to fetch the certificate using an unverified context to provide details
         try:
-            cert = _fetch_unverified_cert(domain, port)
+            cert = _fetch_unverified_cert(domain, port, starttls=starttls)
             if cert is not None:
                 san_hosts = extract_san(cert)
                 cn = get_common_name(cert.subject)
@@ -353,6 +533,13 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
 
     except socket.gaierror:
         error_msg = f"Could not resolve domain name: {domain}"
+        logger.error(error_msg)
+        conn_info["error"] = error_msg
+        return None, conn_info
+
+    except ValueError as e:
+        # Raised by _starttls_upgrade for unsupported protocols.
+        error_msg = f"STARTTLS error for {domain}: {e}"
         logger.error(error_msg)
         conn_info["error"] = error_msg
         return None, conn_info
@@ -465,22 +652,33 @@ def fetch_intermediate_certificates(cert: x509.Certificate) -> List[x509.Certifi
 
     return intermediates
 
-def validate_certificate_chain(domain: str, port: int = 443) -> Tuple[bool, Optional[str]]:
+def validate_certificate_chain(
+    domain: str, port: int = 443, starttls: Optional[str] = None
+) -> Tuple[bool, Optional[str]]:
     """
     Validate the certificate chain of a domain against the system's trust store.
 
-    Args:
-        domain (str): The domain to validate.
-        port (int): The port to connect to for validation.
+    Parameters
+    ----------
+    domain : str
+        The domain to validate.
+    port : int, optional
+        The port to connect to for validation.
+    starttls : str, optional
+        STARTTLS protocol to negotiate before TLS (``smtp``, ``imap``, ``pop3``).
 
-    Returns:
-        Tuple[bool, Optional[str]]: A tuple containing a boolean indicating success and
-        an optional error message with details when validation fails.
+    Returns
+    -------
+    (bool, str or None)
+        A tuple containing a boolean indicating success and an optional
+        error message with details when validation fails.
     """
     logger = logging.getLogger("certcheck")
     try:
         context = ssl.create_default_context()
         with socket.create_connection((domain, port), timeout=10) as sock:
+            if starttls:
+                _starttls_upgrade(sock, starttls)
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 ssock.getpeercert()  # This implicitly validates the chain
         logger.info(f"SSL validation using system trust store OK for {domain}:{port}")
@@ -607,7 +805,7 @@ def detect_profile(cert: x509.Certificate) -> str:
 
     return profile
 
-def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True) -> dict:
+def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True, starttls: Optional[str] = None) -> dict:
     """
     Analyze the certificates of a domain, including leaf and intermediate certificates,
     perform validation, CRL, OCSP checks, and certificate transparency checks.
@@ -623,6 +821,8 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         perform_caa_check (bool): Whether to check DNS CAA records.
         perform_hsts_check (bool): Whether to probe the HTTP Strict Transport
             Security policy via an HTTPS HEAD request.
+        starttls (str, optional): STARTTLS protocol to negotiate before TLS
+            (one of ``smtp``, ``imap``, ``pop3``). ``None`` means implicit TLS.
 
     Returns:
         dict: A dictionary containing analysis results, including connection info,
@@ -682,7 +882,9 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
     }
 
     logger.info(f"Fetching leaf certificate and connection info for {domain}:{port}...")
-    leaf_cert, conn_info = fetch_leaf_certificate_and_conn_info(domain, port=port, insecure=insecure)
+    leaf_cert, conn_info = fetch_leaf_certificate_and_conn_info(
+        domain, port=port, insecure=insecure, starttls=starttls
+    )
     if conn_info:
         result["connection_health"].update(conn_info)
         if conn_info.get("error") and not result["error_message"]:
@@ -697,7 +899,7 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
 
     logger.info(f"Validating chain against system trust store for {domain}:{port}...")
     try:
-        is_valid, val_error = validate_certificate_chain(domain, port=port)
+        is_valid, val_error = validate_certificate_chain(domain, port=port, starttls=starttls)
         result["validation"]["system_trust_store"] = is_valid
         if val_error:
             result["validation"]["error"] = val_error
@@ -907,7 +1109,7 @@ def get_log_level(level_str: str):
     """
     return getattr(logging, level_str.upper(), logging.WARNING)
 
-def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True):
+def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True, starttls: Optional[str] = None):
     """
     Run TLS analysis for a list of domains (which can include ports) and output results.
 
@@ -922,6 +1124,8 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
         perform_ocsp_check (bool): Perform OCSP checks.
         perform_caa_check (bool): Perform DNS CAA checks.
         perform_hsts_check (bool): Probe HTTP Strict Transport Security policy.
+        starttls (str, optional): STARTTLS protocol to negotiate before TLS
+            (``smtp``, ``imap``, ``pop3``). ``None`` means implicit TLS.
     """
     logger = logging.getLogger("certcheck")
     results = [] # Changed from all_results to results to match original variable name
@@ -950,6 +1154,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 perform_ocsp_check=perform_ocsp_check,
                 perform_caa_check=perform_caa_check,
                 perform_hsts_check=perform_hsts_check,
+                starttls=starttls,
             )
         except Exception as e:
             analysis_ts = datetime.datetime.now(timezone.utc).isoformat()
