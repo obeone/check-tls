@@ -20,22 +20,12 @@ RUN --mount=type=cache,target=/var/cache/apk \
 
 WORKDIR /app
 
-# Copy only necessary files for dependency installation
+# Copy sources for the wheel build (pyproject + src). pip wheel resolves
+# transitive deps too, so /app/dist ends up containing every wheel needed.
 COPY --link pyproject.toml ./
-
-# Create a virtual environment and activate it for subsequent commands
-# Install dependencies using pip cache
-RUN  --mount=type=cache,target=/root/.cache/pip \
-    python -m venv /opt/venv && \
-    . /opt/venv/bin/activate && \
-    pip install --upgrade pip
-
-
-# Copy the rest of the source code after dependency installation
 COPY --link src/ ./src/
 
-# Install the project using pip cache, including versioning from git tags
-RUN  --mount=type=cache,target=/root/.cache/pip \
+RUN --mount=type=cache,target=/root/.cache/pip \
     SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION} pip wheel --wheel-dir=/app/dist/ .
 
 # --- Final Stage ---
@@ -50,14 +40,14 @@ ENV PYTHONUNBUFFERED=1
 
 # Create a non-root group and user for the application
 # Using static IDs is a good practice for reproducibility
-RUN addgroup -S -g 1001 appgroup && \
-    adduser -S -u 1001 -G appgroup appuser
+RUN addgroup -S -g 10001 appgroup && \
+    adduser -S -u 10001 -G appgroup appuser
 
 WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,from=builder,source=/app/dist,target=/app/dist \
-    pip install /app/dist/*.whl
+    pip install --no-index --find-links=/app/dist check-tls
 
 USER appuser
 
