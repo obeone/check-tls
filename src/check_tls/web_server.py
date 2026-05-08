@@ -5,20 +5,30 @@ import os # Added for path manipulation
 from urllib.parse import urlparse  # Added for URL parsing
 from flask import Flask, render_template, request, jsonify, current_app
 from check_tls.tls_checker import analyze_certificates
-from markupsafe import Markup
+from markupsafe import Markup, escape
 
 
 def get_tooltip(text):
     """
-    Generate a Bootstrap tooltip icon with the given text.
+    Render a Bootstrap tooltip icon with HTML-escaped tooltip text.
 
-    Args:
-        text (str): The tooltip text to display on hover.
+    Uses ``Markup.format`` so the argument is auto-escaped by markupsafe,
+    preventing XSS injection through the ``title`` attribute.
 
-    Returns:
-        Markup: A Markup string containing the HTML for the tooltip icon.
+    Parameters
+    ----------
+    text : str
+        The tooltip text to display on hover.  May contain arbitrary
+        characters; they will be HTML-escaped before insertion.
+
+    Returns
+    -------
+    Markup
+        A ``Markup`` string containing the safe HTML for the tooltip icon.
     """
-    return Markup(f"<span data-bs-toggle='tooltip' data-bs-placement='top' title='{text}'>🛈</span>")
+    return Markup(
+        '<span data-bs-toggle="tooltip" data-bs-placement="top" title="{}">🛈</span>'
+    ).format(escape(text))
 
 
 def get_flask_app():
