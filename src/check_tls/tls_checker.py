@@ -22,6 +22,7 @@ from check_tls.utils.crl_utils import check_crl
 from check_tls.utils.crtsh_utils import query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
 from check_tls.utils.domain_parser import parse_domain_entry
+from check_tls.utils.hsts_utils import check_hsts
 from check_tls.utils.security_utils import safe_http_fetch, validate_host_for_connection
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -474,7 +475,7 @@ def detect_profile(cert: x509.Certificate) -> str:
 
     return profile
 
-def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True) -> dict:
+def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True) -> dict:
     """
     Analyze the certificates of a domain, including leaf and intermediate certificates,
     perform validation, CRL, OCSP checks, and certificate transparency checks.
@@ -488,6 +489,8 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         perform_crl_check (bool): Whether to perform Certificate Revocation List (CRL) checks.
         perform_ocsp_check (bool): Whether to perform Online Certificate Status Protocol (OCSP) checks.
         perform_caa_check (bool): Whether to check DNS CAA records.
+        perform_hsts_check (bool): Whether to probe the HTTP Strict Transport
+            Security policy via an HTTPS HEAD request.
 
     Returns:
         dict: A dictionary containing analysis results, including connection info,
@@ -532,6 +535,15 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
             "checked": False,
             "found": None,
             "records": None,
+            "error": None,
+        },
+        "hsts": {
+            "checked": False,
+            "header_present": False,
+            "max_age": None,
+            "include_subdomains": False,
+            "preload": False,
+            "raw_header": None,
             "error": None,
         },
     }
@@ -703,6 +715,21 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
         logger.info(f"Skipping DNS CAA check for {domain} as requested.")
         result["caa_check"]["checked"] = False
 
+    # HSTS check (RFC 6797). Only attempt when the leaf certificate
+    # was retrieved successfully — there is no point hitting HTTPS
+    # again if the TLS handshake itself failed.
+    if perform_hsts_check:
+        logger.info(f"Checking HSTS policy for {domain}...")
+        try:
+            hsts_info = check_hsts(domain, port=port)
+            result["hsts"].update(hsts_info)
+        except Exception as e:
+            logger.warning(f"Unexpected error during HSTS check for {domain}: {e}")
+            result["hsts"].update({"checked": True, "error": str(e)})
+    else:
+        logger.info(f"Skipping HSTS check for {domain} as requested.")
+        result["hsts"]["checked"] = False
+
     # Certificate Transparency check (domain + parent domains)
     if not skip_transparency:
         ct_results = query_crtsh_multi(domain)
@@ -747,7 +774,7 @@ def get_log_level(level_str: str):
     """
     return getattr(logging, level_str.upper(), logging.WARNING)
 
-def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True):
+def run_analysis(domains_input: List[str], output_json: Optional[str] = None, output_csv: Optional[str] = None, mode: str = "full", insecure: bool = False, skip_transparency: bool = False, perform_crl_check: bool = True, perform_ocsp_check: bool = True, perform_caa_check: bool = True, perform_hsts_check: bool = True):
     """
     Run TLS analysis for a list of domains (which can include ports) and output results.
 
@@ -761,6 +788,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
         perform_crl_check (bool): Perform CRL checks.
         perform_ocsp_check (bool): Perform OCSP checks.
         perform_caa_check (bool): Perform DNS CAA checks.
+        perform_hsts_check (bool): Probe HTTP Strict Transport Security policy.
     """
     logger = logging.getLogger("certcheck")
     results = [] # Changed from all_results to results to match original variable name
@@ -788,6 +816,7 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                 perform_crl_check=perform_crl_check,
                 perform_ocsp_check=perform_ocsp_check,
                 perform_caa_check=perform_caa_check,
+                perform_hsts_check=perform_hsts_check,
             )
         except Exception as e:
             analysis_ts = datetime.datetime.now(timezone.utc).isoformat()
@@ -817,6 +846,15 @@ def run_analysis(domains_input: List[str], output_json: Optional[str] = None, ou
                     "checked": perform_caa_check,
                     "found": None,
                     "records": None,
+                    "error": str(e),
+                },
+                "hsts": {
+                    "checked": perform_hsts_check,
+                    "header_present": False,
+                    "max_age": None,
+                    "include_subdomains": False,
+                    "preload": False,
+                    "raw_header": None,
                     "error": str(e),
                 },
             }
