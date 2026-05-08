@@ -57,6 +57,7 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 - **Web UI**: Interactive browser-based analysis via a built-in Flask server.
 - **REST API**: Programmatic access for seamless integration into other tools.
 - **Dockerized**: Ready to use with zero local setup via Docker Hub or GHCR.
+- **IPv6 Ready**: The web server listens on all network interfaces (IPv4 & IPv6).
 
 ---
 
@@ -116,7 +117,7 @@ To run the interactive web UI, use the `--server` flag and map the port:
 docker run --rm -p 8000:8000 obeoneorg/check-tls:latest --server
 ```
 
-The web interface will be available at <http://localhost:8000>.
+The web interface will be available at <http://localhost:8000>. The server listens on all interfaces, so you can also access it via `http://<your-ip>:8000`.
 
 ---
 
@@ -171,7 +172,7 @@ To launch the interactive web interface, use the `--server` flag:
 check-tls --server
 ```
 
-Then, open <http://localhost:8000> in your browser.
+Then, open <http://localhost:8000> in your browser. The server listens on all network interfaces (IPv4 & IPv6).
 
 ---
 
