@@ -199,6 +199,42 @@ def print_human_summary(results):
         else:
             print("  Status      : \033[93mNOT DEFINED\033[0m")
 
+        # HSTS section (HTTP Strict Transport Security, RFC 6797)
+        print("\n\033[1mHSTS:\033[0m")
+        hsts = result.get('hsts', {})
+        if not hsts.get('checked'):
+            print("  Status      : \033[93mSkipped\033[0m")
+        elif hsts.get('error'):
+            print("  Status      : \033[91m❌ Error\033[0m")
+            print(f"  Detail      : \033[91m{hsts['error']}\033[0m")
+        elif not hsts.get('header_present'):
+            print("  Status      : \033[91m❌ No HSTS header\033[0m")
+        else:
+            max_age = hsts.get('max_age')
+            if max_age is None:
+                ma_text = "\033[93mN/A\033[0m"
+            elif max_age == 0:
+                ma_text = "\033[91m0 (HSTS disabled)\033[0m"
+            elif max_age < 60 * 60 * 24 * 180:  # < 6 months
+                ma_text = f"\033[93m{max_age}s\033[0m"
+            else:
+                ma_text = f"\033[92m{max_age}s\033[0m"
+            include_sub = hsts.get('include_subdomains')
+            sub_text = (
+                "\033[92mYes\033[0m" if include_sub else "\033[93mNo\033[0m"
+            )
+            preload = hsts.get('preload')
+            preload_text = (
+                "\033[92mYes\033[0m" if preload else "\033[93mNo\033[0m"
+            )
+            print("  Status      : \033[92m✔️ Header present\033[0m")
+            print(f"  max-age           : {ma_text}")
+            print(f"  includeSubDomains : {sub_text}")
+            print(f"  preload           : {preload_text}")
+            raw = hsts.get('raw_header')
+            if raw:
+                print(f"  Raw         : {raw}")
+
         # Certificate Chain Details
         # Lists details for each certificate in the chain, including intermediates and root.
         # Colorize the count based on whether certificates were found.
@@ -276,6 +312,18 @@ def print_human_summary(results):
                 print(f"      \033[1mSANs:\033[0m {sans_display}")
             else:
                 print(f"      \033[1mSANs:\033[0m None")
+
+            # Must-Staple (RFC 7633): show ✔️ when present, ❌ otherwise.
+            must_staple = cert.get('must_staple')
+            if must_staple is True:
+                print("      \033[1mMust-Staple:\033[0m \033[92m✔️\033[0m")
+            else:
+                print("      \033[1mMust-Staple:\033[0m ❌")
+
+            # Quality warnings (weak key/algorithm)
+            quality_warnings = cert.get('quality_warnings') or []
+            for warning in quality_warnings:
+                print(f"      \033[91m⚠️ {warning}\033[0m")  # Red for severe issues
 
             print("")  # Extra newline for readability between certs
 
@@ -362,6 +410,8 @@ def create_parser():
                         help='Disable OCSP check for the leaf certificate')
     parser.add_argument('--no-caa-check', action='store_true',
                         help='Disable DNS CAA record check')
+    parser.add_argument('--no-hsts-check', action='store_true',
+                        help='Disable HTTP Strict Transport Security (HSTS) header probe')
 
     # Add shtab completion argument using the parser program name
     prog_name = parser.prog  # Get the program name (e.g., 'check-tls')
@@ -448,7 +498,8 @@ def main():
                         skip_transparency=args.no_transparency,
                         perform_crl_check=not args.no_crl_check,
                         perform_ocsp_check=not args.no_ocsp_check,
-                        perform_caa_check=not args.no_caa_check
+                        perform_caa_check=not args.no_caa_check,
+                        perform_hsts_check=not args.no_hsts_check,
                     )
                 )
                 print(" \033[92mdone\033[0m")
@@ -468,7 +519,8 @@ def main():
                 skip_transparency=args.no_transparency,
                 perform_crl_check=not args.no_crl_check,
                 perform_ocsp_check=not args.no_ocsp_check,
-                perform_caa_check=not args.no_caa_check
+                perform_caa_check=not args.no_caa_check,
+                perform_hsts_check=not args.no_hsts_check,
             )
 
 

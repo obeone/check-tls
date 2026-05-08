@@ -49,7 +49,7 @@ def get_flask_app():
     app = Flask(__name__,
                 template_folder=os.path.join(project_root, 'templates'),
                 static_folder=os.path.join(project_root, 'static'))
-    app.config['SCRIPT_ARGS'] = argparse.Namespace(insecure=False, no_transparency=False, no_crl_check=False, no_caa_check=False, connect_port=443)
+    app.config['SCRIPT_ARGS'] = argparse.Namespace(insecure=False, no_transparency=False, no_crl_check=False, no_caa_check=False, no_hsts_check=False, connect_port=443)
 
     @app.after_request
     def _set_security_headers(response):
@@ -164,6 +164,7 @@ def get_flask_app():
         no_crl_check_flag = bool(data.get('no_crl_check', False))
         no_ocsp_check_flag = bool(data.get('no_ocsp_check', False))
         no_caa_check_flag = bool(data.get('no_caa_check', False))
+        no_hsts_check_flag = bool(data.get('no_hsts_check', False))
 
         try:
             connect_port_from_json = int(data.get('connect_port', 443))
@@ -182,11 +183,13 @@ def get_flask_app():
                 skip_transparency=no_transparency_flag,
                 perform_crl_check=not no_crl_check_flag,
                 perform_ocsp_check=not no_ocsp_check_flag,
-                perform_caa_check=not no_caa_check_flag
+                perform_caa_check=not no_caa_check_flag,
+                perform_hsts_check=not no_hsts_check_flag,
             )
             # Include OCSP results in JSON API
             analysis_result["ocsp_check"] = analysis_result.get("ocsp_check", {})
             analysis_result["caa_check"] = analysis_result.get("caa_check", {})
+            analysis_result["hsts"] = analysis_result.get("hsts", {})
             results.append(analysis_result)
         return jsonify(results)
     return app

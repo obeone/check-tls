@@ -163,6 +163,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const leaf = (result.certificates || []).find(c => c.chain_index === 0 && !c.error) || {};
     const transparencyDetailsHtml = renderTransparencyDetailsTable(result.transparency, idx);
     const caaDetailsHtml = renderCaaDetails(result.caa_check, idx);
+    const hstsDetailsHtml = renderHstsDetails(result.hsts, idx);
     const connectionError = result.connection_health && result.connection_health.error;
     // Quick info
     // Determine CSS class for expiry text/badge based on days remaining
@@ -224,11 +225,66 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           </div>
           ${caaDetailsHtml}
+          ${hstsDetailsHtml}
           ${transparencyDetailsHtml}
         </div>
       </div>
     `;
     return card;
+  }
+
+  // Render HSTS (RFC 6797) details accordion item.
+  function renderHstsDetails(hstsData, parentIdx) {
+    const headerHtml = (bodyHtml) => `
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="heading-hsts-${parentIdx}">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-hsts-${parentIdx}">
+            HSTS (HTTP Strict Transport Security)
+          </button>
+        </h2>
+        <div id="collapse-hsts-${parentIdx}" class="accordion-collapse collapse" aria-labelledby="heading-hsts-${parentIdx}">
+          <div class="accordion-body">
+            ${bodyHtml}
+          </div>
+        </div>
+      </div>`;
+
+    if (!hstsData || !hstsData.checked) {
+      return headerHtml('<p class="text-muted">HSTS check was skipped.</p>');
+    }
+    if (hstsData.error) {
+      return headerHtml(`<div class="alert alert-danger">${escapeHtml(hstsData.error)}</div>`);
+    }
+    if (!hstsData.header_present) {
+      return headerHtml('<div class="alert alert-danger">No <code>Strict-Transport-Security</code> response header.</div>');
+    }
+
+    const maxAge = hstsData.max_age;
+    let maBadge;
+    if (maxAge === null || maxAge === undefined) {
+      maBadge = '<span class="badge bg-secondary">N/A</span>';
+    } else if (maxAge === 0) {
+      maBadge = '<span class="badge badge-expired">0 (HSTS disabled)</span>';
+    } else if (maxAge < 60 * 60 * 24 * 180) {
+      maBadge = `<span class="badge badge-warning">${maxAge}s</span>`;
+    } else {
+      maBadge = `<span class="badge badge-ok">${maxAge}s</span>`;
+    }
+    const subBadge = hstsData.include_subdomains
+      ? '<span class="badge badge-ok">Yes</span>'
+      : '<span class="badge bg-secondary">No</span>';
+    const preloadBadge = hstsData.preload
+      ? '<span class="badge badge-ok">Yes</span>'
+      : '<span class="badge bg-secondary">No</span>';
+
+    const table = `
+      <table class="table table-sm table-bordered">
+        <tr><th>max-age</th><td>${maBadge}</td></tr>
+        <tr><th>includeSubDomains</th><td>${subBadge}</td></tr>
+        <tr><th>preload</th><td>${preloadBadge}</td></tr>
+        <tr><th>Raw header</th><td><code>${escapeHtml(hstsData.raw_header)}</code></td></tr>
+      </table>`;
+    return headerHtml(table);
   }
 
   // Render Certificate Transparency details table
@@ -389,9 +445,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const certs = result.certificates || [];
     if (!certs.length) return `<div class="alert alert-warning">No certificate data available.</div>`;
-    return certs.map((cert, i) => `
+    return certs.map((cert, i) => {
+      // Quality warnings rendered as a Bootstrap alert with one badge per item.
+      const warnings = Array.isArray(cert.quality_warnings) ? cert.quality_warnings : [];
+      const warningsBlock = warnings.length
+        ? `<div class="alert alert-warning py-2 mb-2">${warnings.map(w => `<span class="badge bg-warning text-dark me-1 mb-1">⚠️ ${escapeHtml(w)}</span>`).join('')}</div>`
+        : '';
+      // Must-Staple badge: green when present, secondary otherwise.
+      const mustStapleBadge = cert.must_staple === true
+        ? '<span class="badge bg-success">Must-Staple ✔️</span>'
+        : '<span class="badge bg-secondary">Must-Staple ❌</span>';
+
+      return `
       <h6 class="mt-3 mb-2">Certificate #${i+1} ${cert.chain_index===0 ? '(Leaf)' : (cert.is_ca ? '(CA/Intermediate)' : '(Intermediate)')}</h6>
       ${cert.error ? `<div class="alert alert-danger">${escapeHtml(cert.error)}</div>` : `
+      ${warningsBlock}
       <table class="table table-sm table-bordered mb-3">
         <tr><th>Subject</th>${tdWithTooltip(escapeHtml(cert.subject), "The distinguished name (DN) of the entity to whom the certificate is issued.")}</tr>
         <tr><th>Issuer</th>${tdWithTooltip(escapeHtml(cert.issuer), "The distinguished name (DN) of the entity that signed and issued the certificate.")}</tr>
@@ -403,10 +471,12 @@ document.addEventListener('DOMContentLoaded', function() {
         <tr><th>SHA256 FP</th>${tdWithTooltip(`<span class="fingerprint">${escapeHtml(cert.sha256_fingerprint)}</span>`, "The SHA-256 fingerprint (hash) of the certificate, used to verify its integrity.")}</tr>
         <tr><th>Profile</th>${tdWithTooltip(escapeHtml(cert.profile), "Indicates the certificate profile or type, e.g., DV (Domain Validated), OV (Organization Validated), EV (Extended Validation).")}</tr>
         <tr><th>Is CA</th>${tdWithTooltip(cert.is_ca ? 'Yes' : 'No', "Indicates if this certificate is a Certificate Authority (CA) certificate, meaning it can sign other certificates.")}</tr>
+        <tr><th>Must-Staple</th>${tdWithTooltip(mustStapleBadge, "RFC 7633 TLS Feature extension declaring the holder commits to OCSP stapling.")}</tr>
         <tr><th>SANs</th>${tdWithTooltip(escapeHtml((cert.san || []).join(', ')), "Subject Alternative Names (SANs) are additional hostnames covered by this SSL certificate.")}</tr>
       </table>
       `}
-    `).join('');
+    `;
+    }).join('');
   }
 
   // Handle form submit
@@ -423,6 +493,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const noCrlCheck = formData.get('no_crl_check') === 'true';
     const noOcspCheck = formData.get('no_ocsp_check') === 'true';
     const noCaaCheck = formData.get('no_caa_check') === 'true';
+    const noHstsCheck = formData.get('no_hsts_check') === 'true';
 
     const payload = {
       domains: domainsArray,
@@ -431,7 +502,8 @@ document.addEventListener('DOMContentLoaded', function() {
       no_transparency: noTransparency,
       no_crl_check: noCrlCheck,
       no_ocsp_check: noOcspCheck,
-      no_caa_check: noCaaCheck
+      no_caa_check: noCaaCheck,
+      no_hsts_check: noHstsCheck
     };
 
     fetch('/api/analyze', {
