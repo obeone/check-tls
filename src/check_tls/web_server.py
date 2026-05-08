@@ -2,9 +2,9 @@
 import logging
 import argparse
 import os # Added for path manipulation
-from urllib.parse import urlparse  # Added for URL parsing
 from flask import Flask, render_template, request, jsonify, current_app
 from check_tls.tls_checker import analyze_certificates
+from check_tls.utils.domain_parser import parse_domain_entry
 from markupsafe import Markup, escape
 
 
@@ -174,32 +174,10 @@ def get_flask_app():
 
         results = []
         for domain_entry in domains_input:
-            processed_entry = domain_entry
-            if "://" not in processed_entry:
-                parts_check = processed_entry.split(':', 1)
-                if len(parts_check) > 1 and parts_check[1].isdigit():
-                     processed_entry = f"https://{processed_entry}"
-                elif ':' not in processed_entry:
-                    processed_entry = f"https://{processed_entry}"
-
-            parsed_url = urlparse(processed_entry)
-            host = parsed_url.hostname
-            port_in_domain = parsed_url.port
-
-            if not host:
-                current_app.logger.warning(f"API: Could not extract hostname from '{domain_entry}'. Using entry as host.")
-                host = domain_entry.split(':')[0]  # Basic fallback
-                port_to_use = connect_port_from_json
-            else:
-                port_to_use = port_in_domain if port_in_domain else connect_port_from_json
-
-            if not (1 <= port_to_use <= 65535):
-                current_app.logger.warning(f"API: Port {port_to_use} for host {host} (from '{domain_entry}') is invalid. Using default {connect_port_from_json}.")
-                port_to_use = connect_port_from_json
-
+            parsed = parse_domain_entry(domain_entry, default_port=connect_port_from_json)
             analysis_result = analyze_certificates(
-                domain=host,
-                port=port_to_use,
+                domain=parsed.host,
+                port=parsed.port,
                 insecure=insecure_flag,
                 skip_transparency=no_transparency_flag,
                 perform_crl_check=not no_crl_check_flag,

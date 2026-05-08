@@ -4,9 +4,9 @@ import argparse
 import logging
 import sys
 import shtab  # Import shtab
-from urllib.parse import urlparse
 from check_tls import __version__
 from check_tls.tls_checker import run_analysis, analyze_certificates, get_log_level
+from check_tls.utils.domain_parser import parse_domain_entry
 from check_tls.web_server import run_server, get_flask_app
 
 def print_human_summary(results):
@@ -423,52 +423,9 @@ def main():
         # This handles inputs like 'google.com', 'google.com:443', or even URLs like 'https://google.com'.
         parsed_domains_for_analysis = []
         for domain_entry in args.domains:
-            processed_entry = domain_entry
-            # Prepend 'https://' if no scheme is present. This helps urlparse correctly handle host:port formats.
-            if "://" not in processed_entry:
-                parts_check = processed_entry.split(':', 1)
-                # If a colon is present and the part after it is digits, assume it's host:port and prepend https://
-                if len(parts_check) > 1 and parts_check[1].isdigit():
-                    processed_entry = f"https://{processed_entry}"
-                # If no colon is present, just prepend https://
-                elif ':' not in processed_entry:
-                    processed_entry = f"https://{processed_entry}"
-
-            # Use urlparse to extract hostname and port
-            parsed_url = urlparse(processed_entry)
-            host = parsed_url.hostname
-            port = parsed_url.port
-
-            # If urlparse failed to extract a hostname (e.g., invalid format),
-            # try to parse it manually as host[:port] and use the default port.
-            if not host:
-                logger.warning(
-                    f"Could not extract hostname from '{domain_entry}'. Using entry as host and default port {args.connect_port}.")
-                parts = domain_entry.split(':', 1)
-                host = parts[0]
-                port = args.connect_port # Start with default port
-                if len(parts) > 1:
-                    try:
-                        # Attempt to parse port if provided manually
-                        port_val = int(parts[1])
-                        if 1 <= port_val <= 65535:
-                            port = port_val # Use manual port if valid
-                    except ValueError:
-                        pass  # If manual port is not a valid integer, stick with default port
-
-            # If port was not extracted by urlparse (e.g., no port specified in input), use the default port.
-            if port is None:
-                port = args.connect_port
-
-            # Validate the final determined port number.
-            if not (1 <= port <= 65535):
-                logger.warning(
-                    f"Port {port} for host {host} (from '{domain_entry}') is invalid. Using default/CLI port {args.connect_port}.")
-                port = args.connect_port # Revert to default/CLI port if invalid
-
-            # Append the processed host, port, and original entry to the list for analysis.
+            parsed = parse_domain_entry(domain_entry, default_port=args.connect_port)
             parsed_domains_for_analysis.append(
-                {'host': host, 'port': port, 'original_entry': domain_entry})
+                {'host': parsed.host, 'port': parsed.port, 'original_entry': parsed.original})
 
         # Determine output method: direct to console or to file (JSON/CSV).
         # If no JSON or CSV output file is specified, perform analysis and print summary directly.
