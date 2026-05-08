@@ -171,9 +171,9 @@ def run_server(args):
     and returns analysis results rendered in HTML or JSON format based on the
     Accept header.
     """
-    logging.info(f"Starting Flask server on http://0.0.0.0:{args.port}")
+    logging.info(f"Starting Flask server on http://[::]:{args.port}")
     try:
         app = get_flask_app()
-        app.run(host='0.0.0.0', port=args.port, debug=False)
+        app.run(host='::', port=args.port, debug=False)
     except Exception as e:
         logging.error(f"Failed to start Flask server: {e}")
