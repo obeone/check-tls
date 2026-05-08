@@ -182,6 +182,76 @@ def extract_san(cert: x509.Certificate) -> List[str]:
         return []
 
 
+def assess_cert_quality(cert: x509.Certificate) -> List[str]:
+    """
+    Return a list of human-readable quality warnings for a certificate.
+
+    Inspects the certificate's public key (algorithm, size/curve) and
+    signature hash algorithm and emits one warning per detected
+    weakness. An empty list means no issues were detected at the
+    algorithm/key-strength level.
+
+    The following situations trigger a warning:
+
+    - **RSA key < 2048 bits**: ``"Weak RSA key: <size> bits (recommended >= 2048)"``.
+    - **ECDSA curve < P-256** (i.e. ``key_size`` < 256):
+      ``"Weak ECDSA curve: <curve_name> (recommended >= P-256)"``.
+    - **DSA public key**: ``"Deprecated DSA key (use RSA or ECDSA)"`` —
+      regardless of size; DSA is no longer recommended for TLS.
+    - **SHA-1 signature**: ``"Deprecated signature algorithm: sha1"``.
+    - **MD5 / MD2 / MD4 signature**: ``"Insecure signature algorithm: <name>"``.
+
+    Parameters
+    ----------
+    cert : x509.Certificate
+        The certificate to assess.
+
+    Returns
+    -------
+    List[str]
+        Quality warnings, possibly empty.
+
+    Examples
+    --------
+    >>> warnings = assess_cert_quality(cert)
+    >>> if warnings:
+    ...     for w in warnings:
+    ...         print("WARN:", w)
+    """
+    warnings: List[str] = []
+
+    public_key = cert.public_key()
+
+    # Public-key strength checks. ``isinstance`` matches the order used
+    # in :func:`get_public_key_details` so behaviour stays consistent.
+    if isinstance(public_key, rsa.RSAPublicKey):
+        if public_key.key_size < 2048:
+            warnings.append(
+                f"Weak RSA key: {public_key.key_size} bits (recommended >= 2048)"
+            )
+    elif isinstance(public_key, ec.EllipticCurvePublicKey):
+        curve_size = public_key.curve.key_size
+        if curve_size < 256:
+            curve_name = getattr(public_key.curve, "name", "unknown") or "unknown"
+            warnings.append(
+                f"Weak ECDSA curve: {curve_name} (recommended >= P-256)"
+            )
+    elif isinstance(public_key, dsa.DSAPublicKey):
+        warnings.append("Deprecated DSA key (use RSA or ECDSA)")
+
+    # Signature hash algorithm checks. ``signature_hash_algorithm`` may
+    # be ``None`` for some non-standard certificates (e.g. Ed25519).
+    sig_algo = cert.signature_hash_algorithm
+    if sig_algo is not None:
+        sig_name = sig_algo.name.lower()
+        if sig_name == "sha1":
+            warnings.append("Deprecated signature algorithm: sha1")
+        elif sig_name in {"md5", "md2", "md4"}:
+            warnings.append(f"Insecure signature algorithm: {sig_name}")
+
+    return warnings
+
+
 def get_common_name(subject: x509.Name) -> Optional[str]:
     """
     Retrieves the Common Name (CN) from the subject of a certificate.
