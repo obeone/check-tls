@@ -241,7 +241,7 @@ def base_analyze(domain, port, insecure):
     return analyze_certificates(
         domain,
         port=port,
-        mode="leaf",
+        mode="simple",
         insecure=insecure,
         skip_transparency=True,
         perform_crl_check=False,
