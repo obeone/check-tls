@@ -106,11 +106,11 @@ docker pull obeoneorg/check-tls:latest
 docker pull ghcr.io/obeone/check-tls:latest
 ```
 
-**Running the Container**
+#### Running the Container
 
 You can run the tool in either CLI mode or as a web server.
 
-**1. CLI Mode**
+#### 1. CLI Mode
 
 To analyze a domain, pass it as a command to the container:
 
@@ -126,7 +126,7 @@ docker run --rm -v "$(pwd)/reports:/app/reports" \
   obeoneorg/check-tls:latest example.com -j /app/reports/report.json
 ```
 
-**2. Web Server Mode**
+#### 2. Web Server Mode
 
 To run the interactive web UI, use the `--server` flag and map the port:
 
