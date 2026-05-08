@@ -17,7 +17,8 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
   - [📚 Table of Contents](#-table-of-contents)
   - [🚀 Features](#-features)
   - [🛠️ Installation](#️-installation)
-    - [Recommended: With pipx](#recommended-with-pipx)
+    - [Recommended: With uv tool](#recommended-with-uv-tool)
+    - [Alternative: With pipx](#alternative-with-pipx)
     - [Alternative: With pip](#alternative-with-pip)
     - [With Docker](#with-docker)
   - [⚙️ Usage](#️-usage)
@@ -63,9 +64,25 @@ A powerful, developer-friendly Python tool to analyze TLS/SSL certificates for a
 
 ## 🛠️ Installation
 
-### Recommended: With pipx
+### Recommended: With uv tool
 
-`pipx` installs CLI tools in isolated environments, which is the safest way to install Python applications.
+[`uv`](https://docs.astral.sh/uv/) installs CLI tools in isolated
+environments, with fast resolution and caching. This is the recommended way
+to install `check-tls`.
+
+```sh
+uv tool install check-tls
+```
+
+To upgrade later:
+
+```sh
+uv tool upgrade check-tls
+```
+
+### Alternative: With pipx
+
+`pipx` also installs CLI tools in isolated environments.
 
 ```sh
 pipx install check-tls
