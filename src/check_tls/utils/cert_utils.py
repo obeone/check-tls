@@ -252,6 +252,79 @@ def assess_cert_quality(cert: x509.Certificate) -> List[str]:
     return warnings
 
 
+# ---------------------------------------------------------------------------
+# RFC 7633 — TLS Feature extension (a.k.a. "Must-Staple")
+# ---------------------------------------------------------------------------
+TLS_FEATURE_OID = ObjectIdentifier("1.3.6.1.5.5.7.1.24")
+
+
+def has_must_staple(cert: x509.Certificate) -> bool:
+    """
+    Return ``True`` when the TLS Feature extension declares ``status_request``.
+
+    The TLS Feature extension (RFC 7633) is an X.509 extension whose
+    value is an ASN.1 ``SEQUENCE OF INTEGER``. When the integer ``5``
+    (``status_request``) appears in the sequence the certificate
+    declares that the holder commits to OCSP stapling, commonly
+    referred to as "Must-Staple".
+
+    Detection strategy:
+
+    1. Try the typed accessor exposed by recent ``cryptography``
+       releases (``ext.value`` is iterable over ``TLSFeatureType`` enum
+       members whose ``.value`` is the integer feature id).
+    2. Otherwise fall back to scanning the raw DER bytes of the
+       extension value for the literal three-byte marker
+       ``02 01 05`` — the DER encoding of ``INTEGER 5``. Because the
+       value is an ASN.1 sequence of single-byte integers, a substring
+       match is sufficient and unambiguous.
+
+    Parameters
+    ----------
+    cert : x509.Certificate
+        The certificate to inspect.
+
+    Returns
+    -------
+    bool
+        ``True`` if the TLS Feature extension is present and contains
+        ``status_request`` (5); ``False`` otherwise (extension absent,
+        empty, or does not contain feature 5).
+    """
+    try:
+        ext = cert.extensions.get_extension_for_oid(TLS_FEATURE_OID)
+    except x509.ExtensionNotFound:
+        return False
+    except Exception:
+        return False
+
+    # cryptography exposes a typed ``TLSFeature`` extension that is
+    # iterable over ``TLSFeatureType`` enum members (integer-valued).
+    # Older releases that do not decode this OID natively expose the
+    # raw DER bytes via ``UnrecognizedExtension.value``.
+    value = ext.value
+    try:
+        for feature in iter(value):
+            try:
+                feature_int = int(getattr(feature, "value", feature))
+            except (TypeError, ValueError):
+                continue
+            if feature_int == 5:
+                return True
+        return False
+    except TypeError:
+        # ``value`` is not iterable — likely an UnrecognizedExtension
+        # because the running ``cryptography`` does not decode this OID.
+        pass
+
+    # Raw-DER fallback: the value is ``SEQUENCE OF INTEGER`` so each
+    # feature appears as ``02 01 <id>`` (DER tag, length, content).
+    raw = getattr(value, "value", None)
+    if isinstance(raw, (bytes, bytearray)):
+        return b"\x02\x01\x05" in bytes(raw)
+    return False
+
+
 def get_common_name(subject: x509.Name) -> Optional[str]:
     """
     Retrieves the Common Name (CN) from the subject of a certificate.
