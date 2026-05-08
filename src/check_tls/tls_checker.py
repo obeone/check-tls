@@ -9,8 +9,16 @@ import sys
 import csv
 from typing import List, Optional, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
-from check_tls.utils.cert_utils import *
-from check_tls.utils.crl_utils import *
+from check_tls.utils.cert_utils import (
+    calculate_days_remaining,
+    extract_san,
+    get_common_name,
+    get_public_key_details,
+    get_sha256_fingerprint,
+    get_signature_algorithm,
+    has_scts,
+)
+from check_tls.utils.crl_utils import check_crl
 from check_tls.utils.crtsh_utils import query_crtsh, query_crtsh_multi
 from check_tls.utils.dns_utils import query_caa
 from check_tls.utils.security_utils import safe_http_fetch, validate_host_for_connection
