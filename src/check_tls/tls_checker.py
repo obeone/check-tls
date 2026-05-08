@@ -630,6 +630,7 @@ def analyze_certificates(domain: str, port: int = 443, mode: str = "full", insec
                 "is_ca": is_ca,
                 "path_length_constraint": path_len,
                 "quality_warnings": assess_cert_quality(cert),
+                "must_staple": has_must_staple(cert),
             }
             result["certificates"].append(cert_data)
         except Exception as e:
