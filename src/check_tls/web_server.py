@@ -215,28 +215,38 @@ def get_flask_app():
 
 
 def run_server(args):
+    """Run the Flask app behind Waitress on the given port (dual-stack IPv6 by default).
+
+    For development/debug, set ``CHECK_TLS_DEV=1`` to fall back to Flask's
+    built-in Werkzeug server with ``debug=True`` — convenient for live reload
+    but **not** suitable for production use.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.  Must contain at minimum:
+
+        * ``port`` (int) — TCP port to listen on.
+
+    Notes
+    -----
+    The production path uses ``waitress.serve`` with ``listen="*:PORT"``
+    (Waitress wildcard) which binds to both IPv4 and IPv6 interfaces.
+    ``threads=8`` provides basic concurrency without requiring an async
+    runtime.  The ``ident`` parameter suppresses Waitress's default
+    ``Server`` header so the implementation detail is not advertised.
     """
-    Run the Flask web server for interactive TLS analysis.
+    logger = logging.getLogger(__name__)
+    app = get_flask_app()
 
-    This function initializes the Flask application, sets up routes for the
-    web interface and API, and starts the server on the specified port.
+    if os.getenv("CHECK_TLS_DEV", "").lower() in {"1", "true", "yes"}:
+        logger.warning(
+            "CHECK_TLS_DEV is set — running Werkzeug dev server (NOT for production)."
+        )
+        app.run(host="::", port=args.port, debug=True)
+        return
 
-    Args:
-        args (argparse.Namespace): Parsed command-line arguments containing
-            configuration options such as the port number and flags for
-            insecure connections, transparency checks, and CRL checks.
+    from waitress import serve  # noqa: PLC0415 – intentional lazy import
 
-    Routes:
-        '/' (GET): Main page for domain input and displaying results.
-        '/api/analyze' (POST): API endpoint for JSON-based domain analysis.
-
-    The web interface supports form submission with domain names and options,
-    and returns analysis results rendered in HTML or JSON format based on the
-    Accept header.
-    """
-    logging.info(f"Starting Flask server on http://[::]:{args.port}")
-    try:
-        app = get_flask_app()
-        app.run(host='::', port=args.port, debug=False)
-    except Exception as e:
-        logging.error(f"Failed to start Flask server: {e}")
+    logger.info("Starting Waitress on http://*:%d (IPv4 + IPv6)", args.port)
+    serve(app, listen=f"*:{args.port}", threads=8, ident="check-tls")
