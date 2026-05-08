@@ -55,6 +55,11 @@ EXPOSE 8000
 
 ENTRYPOINT ["check-tls"]
 
+# Healthcheck only meaningful when run with `--server`. For the default CLI
+# entrypoint the container exits quickly and the healthcheck is a no-op.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:8000/ || exit 1
+
 # Metadata Labels - ensure APP_VERSION is correctly interpolated
 LABEL org.opencontainers.image.title="Check TLS Bundle" \
       org.opencontainers.image.description="A versatile Python tool to analyze TLS/SSL certificates for one or multiple domains, featuring profile detection, chain validation, and multiple output formats. Includes a handy web interface mode!" \
