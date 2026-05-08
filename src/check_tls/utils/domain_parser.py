@@ -71,19 +71,34 @@ def parse_domain_entry(entry: str, default_port: int = DEFAULT_PORT) -> ParsedDo
 
     # Prepend https:// so urlparse can split host:port unambiguously.
     if "://" not in processed:
-        parts_check = processed.split(":", 1)
-        if len(parts_check) > 1 and parts_check[1].isdigit():
-            # Looks like host:port — add scheme.
+        if processed.startswith("["):
+            # Bracketed IPv6 literal, e.g. [::1]:443 — urlparse needs a scheme.
             processed = f"https://{processed}"
-        elif ":" not in processed:
-            # Plain hostname — add scheme.
-            processed = f"https://{processed}"
-        # else: contains a colon but the right side is not purely digits
-        # (e.g. IPv6 without brackets, or garbage).  urlparse will handle it.
+        else:
+            parts_check = processed.split(":", 1)
+            if len(parts_check) > 1 and parts_check[1].isdigit():
+                # Looks like host:port — add scheme.
+                processed = f"https://{processed}"
+            elif ":" not in processed:
+                # Plain hostname — add scheme.
+                processed = f"https://{processed}"
+            # else: contains a colon but the right side is not purely digits
+            # (e.g. unbracketed IPv6 or garbage).  urlparse will handle it.
 
     parsed_url = urlparse(processed)
     host = parsed_url.hostname  # None when urlparse cannot split
-    port = parsed_url.port      # None when no port in URL
+    try:
+        port = parsed_url.port  # None when no port; raises ValueError when out of range
+    except ValueError:
+        # urlparse raises ValueError for ports outside 0-65535; treat as invalid.
+        logger.warning(
+            "Port in '%s' is out of the valid range; using default port %d.",
+            entry,
+            default_port,
+        )
+        return ParsedDomain(host=parsed_url.hostname or entry.split(":")[0],
+                            port=default_port,
+                            original=entry)
 
     if not host:
         # urlparse gave up — fall back to a simple split on first colon.
