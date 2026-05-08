@@ -46,29 +46,43 @@ def is_ip_blocked(ip_address_str: str) -> Tuple[bool, Optional[str]]:
     """
     Check if an IP address is in a blocked range (private/internal networks).
 
-    Args:
-        ip_address_str (str): The IP address to check as a string.
+    The function fails closed: when ``ip_address_str`` cannot be parsed as
+    a valid IP literal, it is treated as blocked rather than allowed.
+    This prevents callers from accidentally bypassing the SSRF allowlist
+    with malformed input that earlier validation may have missed.
 
-    Returns:
-        Tuple[bool, Optional[str]]:
-            - True if the IP is blocked, False otherwise
-            - Error message if blocked, None otherwise
+    Parameters
+    ----------
+    ip_address_str : str
+        The IP address to check, as a string.
 
-    Example:
-        >>> is_ip_blocked('192.168.1.1')
-        (True, 'IP address 192.168.1.1 is in blocked range 192.168.0.0/16 (Private network)')
-        >>> is_ip_blocked('8.8.8.8')
-        (False, None)
+    Returns
+    -------
+    Tuple[bool, Optional[str]]
+        ``(True, error_message)`` when the input is in a blocked range
+        or is not a valid IP literal; ``(False, None)`` only when the
+        input is a syntactically valid IP outside every blocked range.
+
+    Examples
+    --------
+    >>> is_ip_blocked('192.168.1.1')
+    (True, 'IP address 192.168.1.1 is in blocked range 192.168.0.0/16 (Private/internal network)')
+    >>> is_ip_blocked('8.8.8.8')
+    (False, None)
+    >>> is_ip_blocked('not-an-ip')
+    (True, 'Invalid IP address: not-an-ip')
     """
     try:
         ip = ipaddress.ip_address(ip_address_str)
-        for network in BLOCKED_IP_RANGES:
-            if ip in network:
-                return True, f"IP address {ip_address_str} is in blocked range {network} (Private/internal network)"
-        return False, None
-    except ValueError as e:
-        # Not a valid IP address
-        return False, None
+    except ValueError:
+        # Fail closed: refuse anything that does not parse as a valid IP
+        # literal so a malformed string cannot slip past the allowlist.
+        return True, f"Invalid IP address: {ip_address_str}"
+
+    for network in BLOCKED_IP_RANGES:
+        if ip in network:
+            return True, f"IP address {ip_address_str} is in blocked range {network} (Private/internal network)"
+    return False, None
 
 
 def validate_host_for_connection(host: str, port: int, allow_private_ips: bool = False) -> Tuple[bool, Optional[str]]:
