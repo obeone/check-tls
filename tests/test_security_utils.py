@@ -283,3 +283,64 @@ def test_safe_http_fetch_rejects_non_http_scheme(
     assert safe_http_fetch("file:///etc/passwd") is None
     assert safe_http_fetch("ftp://example.com/foo") is None
     assert safe_http_fetch("gopher://example.com/0/x") is None
+
+
+def test_is_ip_blocked_invalid_input_fails_closed() -> None:
+    """
+    A non-IP literal must be reported as blocked, not silently allowed.
+
+    The historical implementation returned ``(False, None)`` for any
+    string that did not parse as an IP, which was a fail-open hole if a
+    malformed value reached :func:`is_ip_blocked` directly. The new
+    behavior is fail-closed.
+    """
+    is_blocked, msg = security_utils.is_ip_blocked("not-an-ip")
+    assert is_blocked is True
+    assert msg is not None
+    assert "Invalid IP address" in msg
+    assert "not-an-ip" in msg
+
+    # Empty string is equally malformed and must also be blocked.
+    is_blocked, msg = security_utils.is_ip_blocked("")
+    assert is_blocked is True
+    assert msg is not None
+    assert "Invalid IP address" in msg
+
+
+def test_is_ip_blocked_valid_public_ip_still_allowed() -> None:
+    """A public IP literal must still pass ``is_ip_blocked`` cleanly."""
+    is_blocked, msg = security_utils.is_ip_blocked("8.8.8.8")
+    assert is_blocked is False
+    assert msg is None
+
+
+def test_is_ip_blocked_private_ip_blocked_with_message() -> None:
+    """A private IP literal must be blocked with a descriptive message."""
+    is_blocked, msg = security_utils.is_ip_blocked("192.168.1.1")
+    assert is_blocked is True
+    assert msg is not None
+    assert "192.168.1.1" in msg
+    assert "192.168.0.0/16" in msg
+
+
+def test_validate_host_blocks_invalid_resolved_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    A malformed IP returned by ``getaddrinfo`` must propagate as a
+    blocked verdict from ``validate_host_for_connection`` thanks to
+    ``is_ip_blocked``'s fail-closed posture.
+    """
+    monkeypatch.setenv("ALLOW_INTERNAL_IPS", "false")
+
+    def fake_getaddrinfo(host, port, family, socktype):
+        return [(security_utils.socket.AF_INET, socktype, 0, "", ("not-an-ip", port))]
+
+    monkeypatch.setattr(security_utils.socket, "getaddrinfo", fake_getaddrinfo)
+
+    is_valid, err = security_utils.validate_host_for_connection(
+        "weird.example", 443
+    )
+    assert is_valid is False
+    assert err is not None
+    assert "Invalid IP address" in err
