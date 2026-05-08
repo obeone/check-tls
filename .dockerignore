@@ -6,6 +6,7 @@ __pycache__/
 *.pytest_cache/
 
 # Ignore virtual environments
+.venv/
 venv/
 .env/
 .envrc
@@ -18,9 +19,15 @@ build/
 .eggs/
 *.egg-info/
 
-# Ignore git and editor files
+# Ignore tests (not needed in the runtime image)
+tests/
+
+# Ignore git and CI/CD metadata
 .git/
+.github/
 .gitignore
+
+# Ignore editor and OS files
 *.swp
 *.swo
 *.bak
@@ -30,9 +37,22 @@ build/
 *.env
 secrets.*
 
-# Ignore docs and markdown previews
+# Ignore docs and markdown previews (none needed in the runtime image)
 *.md~
+*.md
+
+# Ignore screenshots
+screenshot_*.png
 
 # Ignore Docker artifacts
 Dockerfile*
 .dockerignore
+
+# Ignore worktree directories
+.worktrees/
+
+# Ignore Claude/OMC AI tooling config
+.claude/
+.omc/
+CLAUDE.md
+AGENTS.md
