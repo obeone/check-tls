@@ -85,77 +85,119 @@ def is_ip_blocked(ip_address_str: str) -> Tuple[bool, Optional[str]]:
     return False, None
 
 
-def validate_host_for_connection(host: str, port: int, allow_private_ips: bool = False) -> Tuple[bool, Optional[str]]:
+def validate_host_for_connection(
+    host: str,
+    port: int,
+    allow_private_ips: bool = False,
+) -> Tuple[bool, Optional[str], Optional[str]]:
     """
     Validate a host before making a connection to prevent SSRF attacks.
 
-    This function checks if the host (domain or IP) resolves to a private/internal
-    IP address that could be exploited for SSRF attacks.
+    The function checks whether ``host`` (a domain name or an IP literal)
+    resolves to a private/internal IP address that could be abused for
+    SSRF. When ``host`` is a domain name and the validation succeeds, the
+    resolved IP that was actually validated is returned to the caller so
+    the connection can be **pinned** to that exact address — closing the
+    classic DNS-rebinding TOCTOU window where the validator and the
+    socket layer each perform their own DNS lookup with potentially
+    different answers.
 
-    Args:
-        host (str): The hostname or IP address to validate.
-        port (int): The port number (for logging purposes).
-        allow_private_ips (bool): If True, allow connections to private IPs.
-                                  Defaults to False for security.
+    Parameters
+    ----------
+    host : str
+        The hostname or IP address to validate.
+    port : int
+        The port number, used purely for logging context.
+    allow_private_ips : bool, optional
+        When ``True``, skip the SSRF allowlist entirely. The caller will
+        also resolve DNS naturally, so no pinned IP is returned in that
+        case. Defaults to ``False``.
 
-    Returns:
-        Tuple[bool, Optional[str]]:
-            - True if validation passed (host is safe to connect to)
-            - Error message if validation failed, None otherwise
+    Returns
+    -------
+    Tuple[bool, Optional[str], Optional[str]]
+        A 3-tuple ``(is_valid, error_message, resolved_ip)``:
 
-    Example:
-        >>> validate_host_for_connection('example.com', 443)
-        (True, None)
-        >>> validate_host_for_connection('192.168.1.1', 443)
-        (False, 'Blocked connection to private IP...')
+        * ``is_valid`` — ``True`` when the host is safe to connect to.
+        * ``error_message`` — non-``None`` only when ``is_valid`` is
+          ``False``.
+        * ``resolved_ip`` — the IP literal the caller should pin its
+          connection to. It is ``None`` when there is no rebind window
+          to close: ``host`` was already an IP literal, ``allow_private_ips``
+          was ``True``, DNS resolution failed (caller must surface a
+          fresh ``socket.gaierror`` itself), or validation failed.
+
+    Examples
+    --------
+    >>> validate_host_for_connection('example.com', 443)  # doctest: +SKIP
+    (True, None, '93.184.216.34')
+    >>> validate_host_for_connection('192.168.1.1', 443)
+    (False, 'Blocked connection to private/internal IP: ...', None)
     """
     logger = logging.getLogger("certcheck")
 
-    # If private IPs are explicitly allowed, skip validation
+    # If private IPs are explicitly allowed, skip validation entirely.
+    # No pinned IP is returned: the caller resolves DNS naturally.
     if allow_private_ips:
         logger.debug(f"Allowing connection to {host}:{port} (private IPs allowed)")
-        return True, None
+        return True, None, None
 
-    # Check if host is already an IP address
+    # Check if host is already an IP address. No DNS lookup means no
+    # rebind window to close, so resolved_ip stays None.
     try:
         ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+
+    if ip is not None:
         is_blocked, block_msg = is_ip_blocked(str(ip))
         if is_blocked:
             error_msg = f"Blocked connection to private/internal IP: {block_msg}"
             logger.warning(error_msg)
-            return False, error_msg
-        # IP is public, allow connection
-        return True, None
-    except ValueError:
-        # Not an IP address, it's a hostname - need to resolve it
-        pass
+            return False, error_msg, None
+        return True, None, None
 
-    # Resolve hostname to IP address(es) and check each one
+    # Resolve hostname to IP address(es) and check each one. If ANY
+    # resolved IP is private/internal, block the whole connection —
+    # this preserves the previous behavior and avoids attacker-friendly
+    # round-robin DNS that mixes a public IP with a private one.
     try:
         resolved_ips = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        for result in resolved_ips:
-            family, socktype, proto, canonname, sockaddr = result
-            ip_str = sockaddr[0]  # Extract IP address
-
-            is_blocked, block_msg = is_ip_blocked(ip_str)
-            if is_blocked:
-                error_msg = f"Blocked connection to {host}:{port} - resolves to private/internal IP: {block_msg}"
-                logger.warning(error_msg)
-                return False, error_msg
-
-        # All resolved IPs are public, allow connection
-        logger.debug(f"Validated {host}:{port} - resolves to public IPs only")
-        return True, None
-
     except socket.gaierror as e:
-        # DNS resolution failed - let the connection attempt handle this error
+        # DNS resolution failed — let the caller surface its own error
+        # naturally on the actual connection attempt.
         logger.debug(f"DNS resolution failed for {host}: {e}")
-        return True, None  # Allow the connection to proceed and fail naturally with proper error
+        return True, None, None
     except Exception as e:
-        # Unexpected error during validation - fail closed for security
+        # Unexpected error during validation — fail closed for security.
         error_msg = f"Unexpected error validating host {host}: {e}"
         logger.error(error_msg)
-        return False, error_msg
+        return False, error_msg, None
+
+    first_validated_ip: Optional[str] = None
+    for family, socktype, proto, canonname, sockaddr in resolved_ips:
+        ip_str = sockaddr[0]  # Extract IP address
+
+        is_blocked, block_msg = is_ip_blocked(ip_str)
+        if is_blocked:
+            error_msg = (
+                f"Blocked connection to {host}:{port} - resolves to "
+                f"private/internal IP: {block_msg}"
+            )
+            logger.warning(error_msg)
+            return False, error_msg, None
+
+        if first_validated_ip is None:
+            first_validated_ip = ip_str
+
+    # All resolved IPs are public; pin the caller's socket to the first
+    # one we validated to defeat DNS rebinding between this lookup and
+    # the connect() that follows.
+    logger.debug(
+        f"Validated {host}:{port} - resolves to public IPs only "
+        f"(pinned to {first_validated_ip})"
+    )
+    return True, None, first_validated_ip
 
 
 def is_port_allowed(port: int, allowed_ports: Optional[set] = None) -> Tuple[bool, Optional[str]]:
@@ -314,7 +356,21 @@ def safe_http_fetch(
             logger.warning("safe_http_fetch: URL '%s' has an invalid port", current_url)
             return None
 
-        is_valid, validation_error = validate_host_for_connection(
+        # NOTE on DNS rebinding: ``validate_host_for_connection`` returns
+        # the IP it validated, but :mod:`requests` will perform its own
+        # DNS lookup when issuing the request, leaving a small race
+        # window. This is an accepted trade-off here:
+        #   * ``safe_http_fetch`` is only used to retrieve immutable,
+        #     application-layer-signed artefacts (CRLs, OCSP responses,
+        #     intermediate certificates), so a rebind to a private IP
+        #     would still need to serve a payload that is independently
+        #     verified by the caller; and
+        #   * pinning ``requests`` to an IP via URL rewriting would
+        #     break HTTPS hostname validation against the certificate.
+        # The TLS connection in ``tls_checker.fetch_leaf_certificate_and_conn_info``
+        # *does* pin the resolved IP because SNI keeps the hostname for
+        # cert validation independent of the socket address.
+        is_valid, validation_error, _resolved_ip = validate_host_for_connection(
             host, port, allow_private_ips=allow_private
         )
         if not is_valid:
