@@ -18,7 +18,7 @@ def generate_self_signed_cert(common_name, san_list=None, not_before=None, not_a
     subject = issuer = x509.Name([
         x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, common_name),
     ])
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     not_before = not_before or (now - datetime.timedelta(days=1))
     not_after = not_after or (now + datetime.timedelta(days=1))
     builder = (
@@ -56,7 +56,7 @@ def generate_ca_cert(common_name="Test CA"):
     subject = issuer = x509.Name([
         x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, common_name),
     ])
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     builder = (
         x509.CertificateBuilder()
         .subject_name(subject)
@@ -99,7 +99,7 @@ def generate_cert_signed_by_ca(ca_cert, ca_key, common_name, san_list=None, not_
     subject = x509.Name([
         x509.NameAttribute(x509.oid.NameOID.COMMON_NAME, common_name),
     ])
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     not_before = not_before or (now - datetime.timedelta(days=1))
     not_after = not_after or (now + datetime.timedelta(days=1))
     builder = (
@@ -203,7 +203,7 @@ def test_fetch_leaf_certificate_host_mismatch_provides_details():
 
 def test_fetch_leaf_certificate_expired_cert_includes_details(monkeypatch):
     ca_cert, ca_key, ca_path = generate_ca_cert()
-    past = datetime.datetime.utcnow() - datetime.timedelta(days=2)
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)
     cert, cert_path, key_path = generate_cert_signed_by_ca(
         ca_cert,
         ca_key,
@@ -315,7 +315,7 @@ def test_analyze_certificates_host_mismatch_propagates_error():
 
 def test_analyze_certificates_expired_certificate_propagates_error(monkeypatch):
     ca_cert, ca_key, ca_path = generate_ca_cert()
-    past = datetime.datetime.utcnow() - datetime.timedelta(days=2)
+    past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=2)
     cert, cert_path, key_path = generate_cert_signed_by_ca(
         ca_cert,
         ca_key,
