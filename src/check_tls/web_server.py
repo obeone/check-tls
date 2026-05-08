@@ -51,6 +51,59 @@ def get_flask_app():
                 static_folder=os.path.join(project_root, 'static'))
     app.config['SCRIPT_ARGS'] = argparse.Namespace(insecure=False, no_transparency=False, no_crl_check=False, no_caa_check=False, connect_port=443)
 
+    @app.after_request
+    def _set_security_headers(response):
+        """
+        Attach security-related HTTP response headers to every response.
+
+        Applied via ``after_request`` so the headers are present for both
+        the HTML UI and the JSON API, and also when the app is served by a
+        WSGI server instead of Flask's built-in server.
+
+        Headers set (using ``setdefault`` so a downstream proxy can override):
+
+        * ``X-Content-Type-Options: nosniff`` — prevents MIME-type sniffing.
+        * ``X-Frame-Options: DENY`` — blocks clickjacking via iframes.
+        * ``Referrer-Policy: no-referrer`` — suppresses the Referer header.
+        * ``Content-Security-Policy`` — restricts resource loading:
+
+          - Scripts: ``'self'`` + ``cdn.jsdelivr.net`` (Bootstrap bundle).
+            ``'unsafe-inline'`` is **not** included because the HTML template
+            contains no inline ``<script>`` blocks.
+          - Styles: ``'self'`` + ``cdn.jsdelivr.net`` (Bootstrap CSS) +
+            ``fonts.googleapis.com`` (Google Fonts CSS).  ``'unsafe-inline'``
+            is kept because Bootstrap's JavaScript injects inline ``style``
+            attributes at runtime (tooltip positioning, collapse, etc.).
+          - Fonts: ``'self'`` + ``fonts.gstatic.com`` (Inter typeface files).
+          - Images: ``'self' data:`` (Bootstrap uses data-URIs for some icons).
+          - Frames: ``frame-ancestors 'none'`` — redundant with X-Frame-Options
+            but respected by modern browsers.
+
+        Parameters
+        ----------
+        response : flask.Response
+            The outgoing Flask response object.
+
+        Returns
+        -------
+        flask.Response
+            The same response object with the security headers attached.
+        """
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'",
+        )
+        return response
+
     @app.route('/', methods=['GET'])
     def index():
         """
