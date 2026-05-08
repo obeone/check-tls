@@ -195,7 +195,7 @@ def test_safe_http_fetch_rejects_redirect_to_private_ip(
         # Allow only the test server's host:port; everything else goes
         # through the real (strict) validator regardless of the env.
         if host == "127.0.0.1" and p == port:
-            return True, None
+            return True, None, None
         return real_validate(host, p, allow_private_ips=False)
 
     monkeypatch.setattr(
@@ -323,6 +323,64 @@ def test_is_ip_blocked_private_ip_blocked_with_message() -> None:
     assert "192.168.0.0/16" in msg
 
 
+def test_validate_host_returns_resolved_ip_for_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For a hostname that resolves to a public IP, the IP is returned for pinning."""
+    monkeypatch.setenv("ALLOW_INTERNAL_IPS", "false")
+
+    def fake_getaddrinfo(host, port, family, socktype):
+        return [
+            (security_utils.socket.AF_INET, socktype, 0, "", ("8.8.8.8", port))
+        ]
+
+    monkeypatch.setattr(security_utils.socket, "getaddrinfo", fake_getaddrinfo)
+
+    is_valid, err, resolved_ip = security_utils.validate_host_for_connection(
+        "dns.google.example", 443
+    )
+    assert is_valid is True
+    assert err is None
+    assert resolved_ip == "8.8.8.8"
+
+
+def test_validate_host_returns_no_pinned_ip_for_ip_literal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An IP literal needs no pinning — there is no DNS step to race."""
+    monkeypatch.setenv("ALLOW_INTERNAL_IPS", "false")
+
+    is_valid, err, resolved_ip = security_utils.validate_host_for_connection(
+        "8.8.8.8", 443
+    )
+    assert is_valid is True
+    assert err is None
+    assert resolved_ip is None
+
+
+def test_validate_host_blocks_when_resolution_includes_private_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ANY resolved IP is private, the whole connection is refused."""
+    monkeypatch.setenv("ALLOW_INTERNAL_IPS", "false")
+
+    def fake_getaddrinfo(host, port, family, socktype):
+        return [
+            (security_utils.socket.AF_INET, socktype, 0, "", ("8.8.8.8", port)),
+            (security_utils.socket.AF_INET, socktype, 0, "", ("127.0.0.1", port)),
+        ]
+
+    monkeypatch.setattr(security_utils.socket, "getaddrinfo", fake_getaddrinfo)
+
+    is_valid, err, resolved_ip = security_utils.validate_host_for_connection(
+        "mixed.example", 443
+    )
+    assert is_valid is False
+    assert err is not None
+    assert "127.0.0.1" in err
+    assert resolved_ip is None
+
+
 def test_validate_host_blocks_invalid_resolved_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -338,9 +396,58 @@ def test_validate_host_blocks_invalid_resolved_ip(
 
     monkeypatch.setattr(security_utils.socket, "getaddrinfo", fake_getaddrinfo)
 
-    is_valid, err = security_utils.validate_host_for_connection(
+    is_valid, err, resolved_ip = security_utils.validate_host_for_connection(
         "weird.example", 443
     )
     assert is_valid is False
     assert err is not None
     assert "Invalid IP address" in err
+    assert resolved_ip is None
+
+
+def test_fetch_leaf_certificate_pins_validated_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Regression test for DNS rebinding: ``fetch_leaf_certificate_and_conn_info``
+    must connect to the IP that ``validate_host_for_connection`` returned,
+    not to whatever DNS resolves to at connect time.
+
+    We make ``validate_host_for_connection`` return the public IP
+    ``8.8.8.8`` (which is what would have been validated upstream), then
+    intercept ``socket.create_connection`` to capture its address
+    argument. The test asserts the captured address is ``("8.8.8.8", port)``
+    — the validated IP — even though a hypothetical attacker could be
+    rebinding DNS to ``127.0.0.1`` in the meantime.
+    """
+    from check_tls import tls_checker
+
+    captured: List[Tuple[str, int]] = []
+
+    def fake_validate(host, port, allow_private_ips=False):
+        # Simulate: hostname resolved to 8.8.8.8 at validation time.
+        return True, None, "8.8.8.8"
+
+    def fake_create_connection(address, timeout=10):
+        captured.append(address)
+        # Raise a clean OSError so the function returns the standard
+        # network-error path without trying a real TLS handshake.
+        raise OSError("intercepted by test")
+
+    monkeypatch.setattr(
+        tls_checker, "validate_host_for_connection", fake_validate
+    )
+    monkeypatch.setattr(
+        tls_checker.socket, "create_connection", fake_create_connection
+    )
+
+    cert, conn_info = tls_checker.fetch_leaf_certificate_and_conn_info(
+        "dns.google.example", port=443, insecure=True
+    )
+
+    assert cert is None
+    assert conn_info is not None
+    assert captured == [("8.8.8.8", 443)], (
+        "create_connection must be pinned to the validated IP, not "
+        "re-resolved from DNS, to defeat rebinding attacks."
+    )

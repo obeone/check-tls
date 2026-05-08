@@ -60,10 +60,17 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
         logger.warning("Could not set minimum TLS version on context (might be older Python/SSL version).")
 
     # Security validation: Check if the host resolves to private/internal IPs
-    # This prevents SSRF attacks by blocking connections to internal networks
-    # Set ALLOW_INTERNAL_IPS=true environment variable to disable this protection
+    # This prevents SSRF attacks by blocking connections to internal networks.
+    # Set ALLOW_INTERNAL_IPS=true environment variable to disable this protection.
+    # ``validate_host_for_connection`` also returns the IP it validated so we
+    # can pin ``socket.create_connection`` to that exact address — closing
+    # the DNS rebinding TOCTOU window between the validator's getaddrinfo
+    # and the socket layer's own getaddrinfo. SNI / hostname matching keeps
+    # using ``domain`` so cert validation is unaffected.
     allow_private = os.getenv('ALLOW_INTERNAL_IPS', 'false').lower() == 'true'
-    is_valid, validation_error = validate_host_for_connection(domain, port, allow_private_ips=allow_private)
+    is_valid, validation_error, resolved_ip = validate_host_for_connection(
+        domain, port, allow_private_ips=allow_private
+    )
 
     if not is_valid:
         logger.error(f"Security validation failed for {domain}:{port}: {validation_error}")
@@ -74,9 +81,14 @@ def fetch_leaf_certificate_and_conn_info(domain: str, port: int = 443, insecure:
     ssock = None
 
     try:
-        # Establish TCP connection to domain on specified port with timeout
-        sock = socket.create_connection((domain, port), timeout=10)
-        # Wrap socket with SSL context for TLS handshake
+        # Establish TCP connection — pin to the validated IP when one is
+        # available so DNS rebinding cannot redirect the socket between
+        # validation and connect().
+        connect_target = (resolved_ip or domain, port)
+        sock = socket.create_connection(connect_target, timeout=10)
+        # Wrap socket with SSL context for TLS handshake; ``server_hostname``
+        # stays the original domain so SNI and hostname matching work even
+        # when the socket is connected to a pinned IP.
         ssock = context.wrap_socket(sock, server_hostname=domain)
 
         # Extract TLS version and cipher suite details
