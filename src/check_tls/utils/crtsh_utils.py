@@ -5,16 +5,35 @@ Utility functions for querying crt.sh for certificate transparency logs.
 Provides helpers to fetch certificate data for a domain and its parent domains.
 """
 
+import os
 import urllib.request
 import urllib.error
 import json
 import socket
 import logging
+from importlib.metadata import PackageNotFoundError, version
 from urllib.parse import quote_plus
 from typing import Optional, List, Dict, Any
 
 # Timeout in seconds for crt.sh HTTP requests
 CRTSH_TIMEOUT = 15
+
+# User-Agent header sent with every crt.sh request. Reflects the installed
+# package version so server logs can correlate traffic to specific releases.
+try:
+    _pkg_version: str = version("check-tls")
+except PackageNotFoundError:  # pragma: no cover
+    _pkg_version = "unknown"
+
+USER_AGENT = f"check-tls/{_pkg_version}"
+
+# Delay between successive crt.sh requests in query_crtsh_multi.
+# Deliberate rate-limit to avoid hammering crt.sh. Override via the
+# CHECK_TLS_CRTSH_DELAY environment variable (seconds, float).
+try:
+    CRTSH_RATE_LIMIT_DELAY_SEC = max(0.0, float(os.getenv("CHECK_TLS_CRTSH_DELAY", "0.5")))
+except (TypeError, ValueError):
+    CRTSH_RATE_LIMIT_DELAY_SEC = 0.5
 
 
 def get_parent_domains(domain: str) -> list:
@@ -55,7 +74,7 @@ def query_crtsh(domain: str) -> Optional[List[Dict[str, Any]]]:
     logging.info(f"Querying crt.sh for {domain}")
     try:
         req = urllib.request.Request(
-            url, headers={'User-Agent': 'Python-CertCheck/1.3'}
+            url, headers={'User-Agent': USER_AGENT}
         )
         with urllib.request.urlopen(req, timeout=CRTSH_TIMEOUT) as response:
             if response.status == 200:
@@ -110,5 +129,5 @@ def query_crtsh_multi(domain: str) -> dict:
     for d in get_parent_domains(domain):
         res = query_crtsh(d)
         results[d] = res
-        sleep(0.5)  # avoid hammering crt.sh
+        sleep(CRTSH_RATE_LIMIT_DELAY_SEC)
     return results
