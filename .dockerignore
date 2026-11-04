@@ -54,5 +54,5 @@ Dockerfile*
 # Ignore Claude/OMC AI tooling config
 .claude/
 .omc/
-CLAUDE.md
+AGENTS.md
 AGENTS.md
